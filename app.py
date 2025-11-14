@@ -317,8 +317,8 @@ with tab2:
     with col_settings2:
         st.subheader("⚙️ Display Settings")
         
-        bin_width = st.number_input("Width (pixels)", min_value=8, max_value=512, value=64, step=8, key="width2")
-        bin_height = st.number_input("Height (pixels)", min_value=8, max_value=512, value=32, step=8, key="height2")
+        bin_width = st.number_input("Width (pixels)", min_value=1, max_value=2000, value=64, step=1, key="width2")
+        bin_height = st.number_input("Height (pixels)", min_value=1, max_value=2000, value=32, step=1, key="height2")
         
         st.markdown("---")
         
@@ -332,9 +332,46 @@ with tab2:
         st.markdown("---")
         
         with st.expander("🔧 View Options"):
-            zoom_level = st.slider("Zoom Level", 1, 10, 4, help="Pixel size multiplier")
+            zoom_level = st.slider("Zoom Level", 1, 20, 4, help="Pixel size multiplier")
             show_grid = st.checkbox("Show Pixel Grid", value=False)
             auto_detect = st.checkbox("Auto-detect dimensions", value=True, help="Guess dimensions from file size")
+            invert_colors = st.checkbox("Invert Colors", value=False)
+            rotate_view = st.selectbox("Rotate View", [0, 90, 180, 270], help="Rotate displayed image")
+        
+        with st.expander("🎯 Quick Dimension Presets"):
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                if st.button("16×16", use_container_width=True):
+                    st.session_state.width2 = 16
+                    st.session_state.height2 = 16
+                    st.rerun()
+                if st.button("64×32", use_container_width=True):
+                    st.session_state.width2 = 64
+                    st.session_state.height2 = 32
+                    st.rerun()
+                if st.button("128×64", use_container_width=True):
+                    st.session_state.width2 = 128
+                    st.session_state.height2 = 64
+                    st.rerun()
+                if st.button("256×128", use_container_width=True):
+                    st.session_state.width2 = 256
+                    st.session_state.height2 = 128
+                    st.rerun()
+            with col_p2:
+                if st.button("32×32", use_container_width=True):
+                    st.session_state.width2 = 32
+                    st.session_state.height2 = 32
+                    st.rerun()
+                if st.button("64×64", use_container_width=True):
+                    st.session_state.width2 = 64
+                    st.session_state.height2 = 64
+                    st.rerun()
+                if st.button("128×128", use_container_width=True):
+                    st.session_state.width2 = 128
+                    st.session_state.height2 = 128
+                    st.rerun()
+                if st.button("Custom", use_container_width=True):
+                    st.info("Enter custom dimensions above")
     
     with col_viewer:
         bin_file = st.file_uploader(
@@ -353,19 +390,49 @@ with tab2:
             # Auto-detect dimensions
             if auto_detect:
                 possible_dims = []
-                for fmt_name, bpp in [("RGB565", 2), ("RGB888", 3), ("BGR888", 3), ("Grayscale", 1)]:
+                for fmt_name, bpp in [("RGB565", 2), ("RGB888", 3), ("BGR888", 3), ("RGB24", 3), ("Grayscale", 1)]:
                     total_pixels = file_size / bpp
                     if total_pixels == int(total_pixels):
                         total_pixels = int(total_pixels)
-                        # Common aspect ratios
-                        for ratio_w, ratio_h in [(1, 1), (2, 1), (4, 3), (16, 9), (16, 10)]:
-                            w = int((total_pixels * ratio_w / ratio_h) ** 0.5)
-                            h = int(total_pixels / w)
-                            if w * h == total_pixels and w * bpp * h == file_size:
-                                possible_dims.append((w, h, fmt_name))
+                        # Try to find dimensions that multiply to total_pixels
+                        import math
+                        # Common aspect ratios and common dimensions
+                        candidates = []
+                        for w in range(8, min(2001, int(math.sqrt(total_pixels) * 3))):
+                            if total_pixels % w == 0:
+                                h = total_pixels // w
+                                if h <= 2000 and w * h == total_pixels:
+                                    candidates.append((w, h, fmt_name))
+                        
+                        # Prioritize common sizes and ratios
+                        common_sizes = [(16,16), (32,32), (64,32), (64,64), (128,64), (128,128), (256,128), (256,256)]
+                        for w, h in common_sizes:
+                            if (w, h, fmt_name) in candidates:
+                                possible_dims.insert(0, (w, h, fmt_name))
+                        
+                        # Add other candidates
+                        for cand in candidates:
+                            if cand not in possible_dims:
+                                possible_dims.append(cand)
                 
                 if possible_dims:
-                    st.info(f"💡 **Possible dimensions detected:** " + ", ".join([f"{w}×{h} ({fmt})" for w, h, fmt in possible_dims[:5]]))
+                    st.success(f"💡 **Auto-detected {len(possible_dims)} possible configuration(s):**")
+                    # Show top 10 most likely
+                    for w, h, fmt in possible_dims[:10]:
+                        col_btn, col_info = st.columns([3, 1])
+                        with col_btn:
+                            if st.button(f"▶ {w}×{h} pixels • {fmt}", key=f"preset_{w}_{h}_{fmt}", use_container_width=True):
+                                st.session_state.width2 = w
+                                st.session_state.height2 = h
+                                st.rerun()
+                        with col_info:
+                            aspect = w/h
+                            st.caption(f"~{aspect:.2f}:1")
+                    
+                    if len(possible_dims) > 10:
+                        st.info(f"... and {len(possible_dims)-10} more possibilities")
+                else:
+                    st.warning("⚠️ Could not auto-detect standard dimensions. File may have unusual format or include headers.")
             
             # File analysis
             col_a1, col_a2, col_a3, col_a4 = st.columns(4)
@@ -437,20 +504,30 @@ with tab2:
                     pixels = pixels[:bin_width * actual_height].reshape((actual_height, bin_width))
                     img = Image.fromarray(pixels.astype('uint8'), 'L')
                 
+                # Apply view transformations
+                if invert_colors:
+                    img = Image.eval(img, lambda x: 255 - x)
+                
+                if rotate_view != 0:
+                    img = img.rotate(-rotate_view, expand=True)
+                
                 # Scale up for viewing
-                view_img = img.resize((bin_width * zoom_level, img.height * zoom_level), Image.NEAREST)
+                display_width = min(bin_width * zoom_level, 2000)
+                display_height = int(img.height * (display_width / img.width))
+                view_img = img.resize((display_width, display_height), Image.NEAREST)
                 
                 st.image(view_img, caption=f"Decoded Image ({img.width}×{img.height})", use_container_width=True)
                 
                 # Analysis
-                with st.expander("📊 Image Analysis"):
-                    col1, col2 = st.columns(2)
+                with st.expander("📊 Image Analysis", expanded=True):
+                    col1, col2, col3 = st.columns(3)
                     with col1:
                         st.write("**Dimensions:**")
                         st.write(f"• Width: {img.width} pixels")
                         st.write(f"• Height: {img.height} pixels")
                         st.write(f"• Total pixels: {img.width * img.height:,}")
-                        st.write(f"• Aspect ratio: {img.width/img.height:.2f}:1")
+                        st.write(f"• Aspect ratio: {img.width/img.height:.3f}:1")
+                        st.write(f"• Display area: {img.width * img.height / 1000:.1f}K pixels")
                     
                     with col2:
                         if bin_format != "Monochrome":
@@ -460,44 +537,153 @@ with tab2:
                                 st.write(f"• Avg Red: {arr[:,:,0].mean():.1f}")
                                 st.write(f"• Avg Green: {arr[:,:,1].mean():.1f}")
                                 st.write(f"• Avg Blue: {arr[:,:,2].mean():.1f}")
+                                st.write(f"• Std Dev: R={arr[:,:,0].std():.1f} G={arr[:,:,1].std():.1f} B={arr[:,:,2].std():.1f}")
                             else:
                                 st.write(f"• Avg brightness: {arr.mean():.1f}")
+                                st.write(f"• Std deviation: {arr.std():.1f}")
                             st.write(f"• Min value: {arr.min()}")
                             st.write(f"• Max value: {arr.max()}")
+                    
+                    with col3:
+                        st.write("**File Info:**")
+                        st.write(f"• Format: {bin_format}")
+                        st.write(f"• File size: {file_size:,} bytes")
+                        st.write(f"• Size on disk: ~{file_size/1024:.1f} KB")
+                        if file_size > 1024*1024:
+                            st.write(f"• Size: ~{file_size/(1024*1024):.2f} MB")
+                        bytes_pp = file_size / (img.width * img.height) if img.width * img.height > 0 else 0
+                        st.write(f"• Bytes/pixel: {bytes_pp:.2f}")
+                
+                # Color histogram for RGB images
+                if bin_format in ["RGB565", "RGB888", "BGR888", "RGB24"]:
+                    with st.expander("🎨 Color Distribution Histogram"):
+                        arr = np.array(img)
+                        if len(arr.shape) == 3:
+                            col_r, col_g, col_b = st.columns(3)
+                            with col_r:
+                                st.write("**Red Channel**")
+                                hist_r = np.histogram(arr[:,:,0], bins=32, range=(0, 256))[0]
+                                st.bar_chart(hist_r)
+                            with col_g:
+                                st.write("**Green Channel**")
+                                hist_g = np.histogram(arr[:,:,1], bins=32, range=(0, 256))[0]
+                                st.bar_chart(hist_g)
+                            with col_b:
+                                st.write("**Blue Channel**")
+                                hist_b = np.histogram(arr[:,:,2], bins=32, range=(0, 256))[0]
+                                st.bar_chart(hist_b)
                 
                 # Download as PNG
                 buf = io.BytesIO()
                 img.save(buf, format='PNG')
                 buf.seek(0)
                 
-                st.download_button(
-                    label="💾 Export as PNG",
-                    data=buf,
-                    file_name=bin_file.name.replace('.bin', '.png'),
-                    mime="image/png",
-                    use_container_width=True
-                )
+                col_dl1, col_dl2 = st.columns(2)
+                with col_dl1:
+                    st.download_button(
+                        label="💾 Export as PNG",
+                        data=buf,
+                        file_name=bin_file.name.replace('.bin', '.png'),
+                        mime="image/png",
+                        use_container_width=True
+                    )
+                
+                with col_dl2:
+                    # Export as different format BIN
+                    if st.button("🔄 Convert Format", use_container_width=True):
+                        st.info("Use the Image to BIN tab to convert this PNG to a different format")
+                
+                # Pixel inspector
+                with st.expander("🔍 Pixel Inspector"):
+                    st.write("Click coordinates to inspect pixel values")
+                    col_x, col_y = st.columns(2)
+                    with col_x:
+                        inspect_x = st.number_input("X coordinate", 0, img.width-1, 0)
+                    with col_y:
+                        inspect_y = st.number_input("Y coordinate", 0, img.height-1, 0)
+                    
+                    if 0 <= inspect_x < img.width and 0 <= inspect_y < img.height:
+                        arr = np.array(img)
+                        if len(arr.shape) == 3:
+                            pixel = arr[inspect_y, inspect_x]
+                            st.write(f"**Pixel at ({inspect_x}, {inspect_y}):**")
+                            col_pix1, col_pix2, col_pix3 = st.columns(3)
+                            with col_pix1:
+                                st.metric("Red", pixel[0])
+                            with col_pix2:
+                                st.metric("Green", pixel[1])
+                            with col_pix3:
+                                st.metric("Blue", pixel[2])
+                            # Show color swatch
+                            color_html = f'<div style="width:100px;height:100px;background-color:rgb({pixel[0]},{pixel[1]},{pixel[2]});border:2px solid #ccc;border-radius:8px;margin:10px auto;"></div>'
+                            st.markdown(color_html, unsafe_allow_html=True)
+                            st.code(f"RGB: ({pixel[0]}, {pixel[1]}, {pixel[2]})\nHEX: #{pixel[0]:02X}{pixel[1]:02X}{pixel[2]:02X}")
+                        else:
+                            pixel = arr[inspect_y, inspect_x]
+                            st.write(f"**Pixel at ({inspect_x}, {inspect_y}):** {pixel}")
+                            color_html = f'<div style="width:100px;height:100px;background-color:rgb({pixel},{pixel},{pixel});border:2px solid #ccc;border-radius:8px;margin:10px auto;"></div>'
+                            st.markdown(color_html, unsafe_allow_html=True)
                 
             except Exception as e:
                 st.error(f"❌ Error decoding BIN file: {str(e)}")
                 st.write("Try adjusting the width/height or format settings.")
             
             # Hex viewer
-            with st.expander("🔍 Raw Hex Data (First 512 bytes)"):
-                preview_bytes = min(512, len(bin_data))
-                hex_lines = []
-                for i in range(0, preview_bytes, 16):
-                    hex_part = ' '.join(f'{b:02X}' for b in bin_data[i:i+16])
-                    ascii_part = ''.join(chr(b) if 32 <= b < 127 else '.' for b in bin_data[i:i+16])
-                    hex_lines.append(f"{i:08X}  {hex_part:<48}  {ascii_part}")
-                st.code('\n'.join(hex_lines), language=None)
-                if len(bin_data) > preview_bytes:
-                    st.write(f"... and {len(bin_data) - preview_bytes:,} more bytes")
+            with st.expander("🔍 Raw Hex Data Viewer"):
+                preview_size = st.slider("Preview size (bytes)", 128, min(4096, len(bin_data)), min(512, len(bin_data)), 128)
+                
+                col_hex1, col_hex2 = st.columns([3, 1])
+                with col_hex1:
+                    hex_lines = []
+                    for i in range(0, preview_size, 16):
+                        hex_part = ' '.join(f'{b:02X}' for b in bin_data[i:i+16])
+                        ascii_part = ''.join(chr(b) if 32 <= b < 127 else '.' for b in bin_data[i:i+16])
+                        hex_lines.append(f"{i:08X}  {hex_part:<48}  {ascii_part}")
+                    st.code('\n'.join(hex_lines), language=None)
+                    if len(bin_data) > preview_size:
+                        st.write(f"... and {len(bin_data) - preview_size:,} more bytes")
+                
+                with col_hex2:
+                    st.write("**Byte Search**")
+                    search_byte = st.text_input("Find byte (hex)", "FF")
+                    try:
+                        search_val = int(search_byte, 16)
+                        count = bin_data.count(search_val)
+                        st.metric("Occurrences", f"{count:,}")
+                        if count > 0:
+                            percentage = (count / len(bin_data)) * 100
+                            st.write(f"{percentage:.2f}% of file")
+                    except:
+                        st.write("Invalid hex")
             
             # Statistics
-            with st.expander("📈 Byte Distribution"):
+            with st.expander("📈 Byte Distribution & Statistics"):
+                col_stat1, col_stat2 = st.columns([2, 1])
+                with col_stat1:
+                    st.write("**Byte Value Distribution**")
+                    byte_counts = np.bincount(np.array(list(bin_data)), minlength=256)
+                    st.bar_chart(byte_counts)
+                
+                with col_stat2:
+                    st.write("**Statistics**")
+                    arr = np.array(list(bin_data))
+                    st.metric("Mean", f"{arr.mean():.1f}")
+                    st.metric("Median", f"{np.median(arr):.1f}")
+                    st.metric("Std Dev", f"{arr.std():.1f}")
+                    st.metric("Unique", f"{len(np.unique(arr))}")
+                    
+                    most_common = np.bincount(arr).argmax()
+                    st.write(f"**Most common byte:**")
+                    st.code(f"0x{most_common:02X} ({most_common})")
+                
+                # Entropy calculation
+                st.write("**File Entropy**")
                 byte_counts = np.bincount(np.array(list(bin_data)), minlength=256)
-                st.bar_chart(byte_counts)
+                probabilities = byte_counts[byte_counts > 0] / len(bin_data)
+                entropy = -np.sum(probabilities * np.log2(probabilities))
+                st.metric("Shannon Entropy", f"{entropy:.3f} bits/byte")
+                st.progress(entropy / 8.0)
+                st.caption("Higher entropy = more random/complex data. Max = 8 bits/byte")
         else:
             st.info("👆 Upload a BIN file to view and analyze")
 

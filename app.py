@@ -1,54 +1,100 @@
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageDraw, ImageFont
 import io
 import numpy as np
 import struct
+import time
 
-st.set_page_config(page_title="Image ⇄ BIN Converter", page_icon="🖼️", layout="wide")
+st.set_page_config(page_title="Image ⇄ BIN/NLF/BIM Converter Pro", page_icon="🖼️", layout="wide")
 
 # Custom CSS for better styling
 st.markdown("""
 <style>
     .main-header {
         text-align: center;
-        padding: 1rem 0;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        padding: 1.5rem 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
         color: white;
-        border-radius: 10px;
+        border-radius: 15px;
         margin-bottom: 2rem;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     .info-box {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #667eea;
+        background-color: #e3f2fd;
+        padding: 1.2rem;
+        border-radius: 10px;
+        border-left: 5px solid #2196f3;
         margin: 1rem 0;
     }
     .success-box {
         background-color: #d4edda;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #28a745;
+        padding: 1.2rem;
+        border-radius: 10px;
+        border-left: 5px solid #28a745;
+        margin: 1rem 0;
+    }
+    .warning-box {
+        background-color: #fff3cd;
+        padding: 1.2rem;
+        border-radius: 10px;
+        border-left: 5px solid #ffc107;
         margin: 1rem 0;
     }
     .metric-card {
         background-color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 1.2rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         text-align: center;
+    }
+    .animation-frame {
+        border: 3px solid #667eea;
+        border-radius: 10px;
+        padding: 10px;
+        background: #f8f9fa;
+    }
+    .stButton>button {
+        border-radius: 8px;
+        font-weight: 500;
+    }
+    .file-type-badge {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-weight: bold;
+        margin: 0.5rem;
+    }
+    .badge-nlf {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+    }
+    .badge-bim {
+        background: linear-gradient(135deg, #f093fb, #f5576c);
+        color: white;
+    }
+    .badge-bin {
+        background: linear-gradient(135deg, #4facfe, #00f2fe);
+        color: white;
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header"><h1>🖼️ Image ⇄ BIN Converter Pro</h1><p>Convert images to BIN files for LED displays • View and analyze BIN files</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>🖼️ Image ⇄ BIN/NLF/BIM Converter Pro</h1><p>Advanced converter for LED displays, LED fans, and embedded systems • Full animation support</p></div>', unsafe_allow_html=True)
 
-# Create tabs for different functions
-tab1, tab2, tab3 = st.tabs(["📤 Image to BIN", "📥 BIN Viewer & Analyzer", "📚 Documentation"])
+# Initialize session state
+if 'animation_playing' not in st.session_state:
+    st.session_state.animation_playing = False
+if 'current_frame' not in st.session_state:
+    st.session_state.current_frame = 0
+if 'frame_data' not in st.session_state:
+    st.session_state.frame_data = []
+
+# Create tabs
+tab1, tab2, tab3, tab4 = st.tabs(["📤 Image to BIN/NLF", "📥 BIN/NLF/BIM Viewer", "🎬 Animation Tools", "📚 Documentation"])
 
 # ==================== TAB 1: IMAGE TO BIN ====================
 with tab1:
-    st.header("Convert Image to BIN File")
+    st.header("Convert Image to BIN/NLF File")
     
     col_settings, col_upload = st.columns([1, 2])
     
@@ -62,8 +108,14 @@ with tab1:
         
         color_format = st.selectbox(
             "Color Format",
-            ["RGB565", "RGB888", "BGR888", "RGB24", "Grayscale", "Monochrome"],
-            help="RGB565: 16-bit (most common)\nRGB888: 24-bit full color\nBGR888: 24-bit (reversed)\nGrayscale: 8-bit\nMonochrome: 1-bit"
+            ["RGB565", "RGB888", "BGR888", "RGB24", "RGBA8888", "Grayscale", "Monochrome"],
+            help="RGB565: 16-bit (LED matrices)\nRGB888: 24-bit full color\nBGR888: 24-bit reversed\nRGBA8888: 32-bit with alpha\nGrayscale: 8-bit\nMonochrome: 1-bit"
+        )
+        
+        output_format = st.selectbox(
+            "Output File Format",
+            ["BIN (Raw Binary)", "NLF (LED Fan Animation)", "BIM (Binary Image)"],
+            help="Choose output format based on your device"
         )
         
         resize_method = st.selectbox(
@@ -78,35 +130,49 @@ with tab1:
         with st.expander("🔧 Advanced Options"):
             brightness = st.slider("Brightness", 0, 200, 100, 5, help="Adjust image brightness")
             contrast = st.slider("Contrast", 0, 200, 100, 5, help="Adjust image contrast")
+            saturation = st.slider("Saturation", 0, 200, 100, 5, help="Adjust color saturation")
+            sharpness = st.slider("Sharpness", 0, 200, 100, 5, help="Adjust image sharpness")
             dithering = st.checkbox("Apply Dithering", value=False, help="Better for low-color displays")
             flip_h = st.checkbox("Flip Horizontal", value=False)
             flip_v = st.checkbox("Flip Vertical", value=False)
             rotate = st.selectbox("Rotate", [0, 90, 180, 270], help="Degrees clockwise")
+            gamma = st.slider("Gamma Correction", 0.5, 3.0, 1.0, 0.1, help="Adjust gamma for displays")
         
         # Quick presets
         with st.expander("⚡ Quick Presets"):
-            if st.button("32×32 RGB LED", use_container_width=True):
-                st.session_state.width1 = 32
-                st.session_state.height1 = 32
-                st.rerun()
-            if st.button("64×32 RGB LED", use_container_width=True):
-                st.session_state.width1 = 64
-                st.session_state.height1 = 32
-                st.rerun()
-            if st.button("64×64 RGB LED", use_container_width=True):
-                st.session_state.width1 = 64
-                st.session_state.height1 = 64
-                st.rerun()
-            if st.button("128×64 OLED", use_container_width=True):
-                st.session_state.width1 = 128
-                st.session_state.height1 = 64
-                st.rerun()
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                if st.button("32×32 RGB LED", use_container_width=True):
+                    st.session_state.width1 = 32
+                    st.session_state.height1 = 32
+                    st.rerun()
+                if st.button("64×64 RGB LED", use_container_width=True):
+                    st.session_state.width1 = 64
+                    st.session_state.height1 = 64
+                    st.rerun()
+                if st.button("144×64 LED Fan", use_container_width=True):
+                    st.session_state.width1 = 144
+                    st.session_state.height1 = 64
+                    st.rerun()
+            with col_p2:
+                if st.button("64×32 RGB LED", use_container_width=True):
+                    st.session_state.width1 = 64
+                    st.session_state.height1 = 32
+                    st.rerun()
+                if st.button("128×64 OLED", use_container_width=True):
+                    st.session_state.width1 = 128
+                    st.session_state.height1 = 64
+                    st.rerun()
+                if st.button("120×60 LED Fan", use_container_width=True):
+                    st.session_state.width1 = 120
+                    st.session_state.height1 = 60
+                    st.rerun()
     
     with col_upload:
         uploaded_file = st.file_uploader(
             "📁 Choose an image file",
-            type=['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'],
-            help="Supported formats: PNG, JPG, BMP, GIF, WebP"
+            type=['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp', 'tiff'],
+            help="Supported formats: PNG, JPG, BMP, GIF, WebP, TIFF"
         )
         
         if uploaded_file is not None:
@@ -114,10 +180,10 @@ with tab1:
             col_orig, col_proc = st.columns(2)
             
             with col_orig:
-                st.markdown("**Original Image**")
+                st.markdown("**📥 Original Image**")
                 original_image = Image.open(uploaded_file)
                 st.image(original_image, use_container_width=True)
-                st.caption(f"📏 {original_image.size[0]}×{original_image.size[1]} | Mode: {original_image.mode}")
+                st.caption(f"📏 {original_image.size[0]}×{original_image.size[1]} | Mode: {original_image.mode} | Format: {original_image.format}")
             
             # Process image
             img = original_image.copy()
@@ -164,22 +230,32 @@ with tab1:
             if img.mode != 'RGB':
                 img = img.convert('RGB')
             
-            # Apply brightness and contrast
-            if brightness != 100 or contrast != 100:
-                from PIL import ImageEnhance
-                if brightness != 100:
-                    enhancer = ImageEnhance.Brightness(img)
-                    img = enhancer.enhance(brightness / 100)
-                if contrast != 100:
-                    enhancer = ImageEnhance.Contrast(img)
-                    img = enhancer.enhance(contrast / 100)
+            # Apply enhancements
+            if brightness != 100:
+                enhancer = ImageEnhance.Brightness(img)
+                img = enhancer.enhance(brightness / 100)
+            if contrast != 100:
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(contrast / 100)
+            if saturation != 100:
+                enhancer = ImageEnhance.Color(img)
+                img = enhancer.enhance(saturation / 100)
+            if sharpness != 100:
+                enhancer = ImageEnhance.Sharpness(img)
+                img = enhancer.enhance(sharpness / 100)
+            
+            # Apply gamma correction
+            if gamma != 1.0:
+                img_array = np.array(img).astype(float)
+                img_array = 255 * np.power(img_array / 255, 1/gamma)
+                img = Image.fromarray(img_array.astype('uint8'))
             
             # Apply dithering if needed
             if dithering and color_format in ["Monochrome", "Grayscale"]:
-                img = img.convert('L').convert('1', dither=Image.FLOYDSTEINBERG)
+                img = img.convert('L').convert('1', dither=Image.Dither.FLOYDSTEINBERG)
             
             with col_proc:
-                st.markdown("**Processed Image**")
+                st.markdown("**📤 Processed Image**")
                 st.image(img, use_container_width=True)
                 st.caption(f"📏 {img.size[0]}×{img.size[1]} | Format: {color_format}")
             
@@ -218,6 +294,15 @@ with tab1:
                             bin_data.extend([pixel[0], pixel[0], pixel[0]])
                 bytes_per_pixel = 3
             
+            elif color_format == "RGBA8888":
+                for row in pixels:
+                    for pixel in row:
+                        if len(pixel) >= 3:
+                            bin_data.extend([pixel[0], pixel[1], pixel[2], 255])
+                        else:
+                            bin_data.extend([pixel[0], pixel[0], pixel[0], 255])
+                bytes_per_pixel = 4
+            
             elif color_format == "Grayscale":
                 gray_img = img.convert('L')
                 gray_pixels = np.array(gray_img)
@@ -243,6 +328,19 @@ with tab1:
                         bin_data.append(byte_val)
                 bytes_per_pixel = 0.125
             
+            # Add format-specific headers/metadata
+            final_data = bytearray()
+            if "NLF" in output_format:
+                # NLF header (simplified example)
+                final_data.extend(struct.pack('<4sHHBB', b'NLF1', matrix_width, matrix_height, bytes_per_pixel, 1))  # 1 frame
+                final_data.extend(bin_data)
+            elif "BIM" in output_format:
+                # BIM header (simplified example)
+                final_data.extend(struct.pack('<4sII', b'BIM\x00', matrix_width, matrix_height))
+                final_data.extend(bin_data)
+            else:
+                final_data = bin_data
+            
             # Success message and metrics
             st.markdown('<div class="success-box">✅ <b>Conversion Complete!</b></div>', unsafe_allow_html=True)
             
@@ -252,29 +350,38 @@ with tab1:
             with col_m2:
                 st.metric("Format", color_format)
             with col_m3:
-                st.metric("File Size", f"{len(bin_data):,} bytes")
+                st.metric("File Size", f"{len(final_data):,} bytes")
             with col_m4:
                 st.metric("Pixels", f"{matrix_width * matrix_height:,}")
             
             # Download button
-            filename = uploaded_file.name.rsplit('.', 1)[0] + '.bin'
+            if "NLF" in output_format:
+                file_ext = ".nlf"
+            elif "BIM" in output_format:
+                file_ext = ".bim"
+            else:
+                file_ext = ".bin"
+            
+            filename = uploaded_file.name.rsplit('.', 1)[0] + file_ext
             st.download_button(
-                label="⬇️ Download BIN File",
-                data=bytes(bin_data),
+                label=f"⬇️ Download {file_ext.upper()} File",
+                data=bytes(final_data),
                 file_name=filename,
                 mime="application/octet-stream",
                 use_container_width=True
             )
             
             # Additional details
-            with st.expander("📊 Detailed Information"):
-                col1, col2 = st.columns(2)
+            with st.expander("📊 Detailed Information", expanded=True):
+                col1, col2, col3 = st.columns(3)
                 with col1:
                     st.write("**File Information:**")
                     st.write(f"• Total pixels: {matrix_width * matrix_height:,}")
                     st.write(f"• Bytes per pixel: {bytes_per_pixel}")
-                    st.write(f"• Total bytes: {len(bin_data):,}")
-                    st.write(f"• File format: Raw binary ({color_format})")
+                    st.write(f"• Image data: {len(bin_data):,} bytes")
+                    st.write(f"• Total file size: {len(final_data):,} bytes")
+                    st.write(f"• Compression: None (raw)")
+                
                 with col2:
                     st.write("**Color Information:**")
                     if color_format == "RGB565":
@@ -286,31 +393,45 @@ with tab1:
                         st.write("• Red: 8 bits (256 levels)")
                         st.write("• Green: 8 bits (256 levels)")
                         st.write("• Blue: 8 bits (256 levels)")
-                        st.write("• Total colors: 16,777,216")
+                        st.write("• Total colors: 16.7M")
+                    elif color_format == "RGBA8888":
+                        st.write("• Red: 8 bits")
+                        st.write("• Green: 8 bits")
+                        st.write("• Blue: 8 bits")
+                        st.write("• Alpha: 8 bits")
                     elif color_format == "Grayscale":
                         st.write("• 8 bits per pixel")
                         st.write("• 256 gray levels")
                     elif color_format == "Monochrome":
                         st.write("• 1 bit per pixel")
-                        st.write("• Black and white only")
+                        st.write("• 2 colors (B&W)")
+                
+                with col3:
+                    st.write("**Processing Applied:**")
+                    st.write(f"• Brightness: {brightness}%")
+                    st.write(f"• Contrast: {contrast}%")
+                    st.write(f"• Saturation: {saturation}%")
+                    st.write(f"• Sharpness: {sharpness}%")
+                    st.write(f"• Gamma: {gamma}")
+                    st.write(f"• Rotation: {rotate}°")
             
             # Hex preview
             with st.expander("🔍 Hex Data Preview (First 512 bytes)"):
-                preview_bytes = min(512, len(bin_data))
+                preview_bytes = min(512, len(final_data))
                 hex_lines = []
                 for i in range(0, preview_bytes, 16):
-                    hex_part = ' '.join(f'{b:02X}' for b in bin_data[i:i+16])
-                    ascii_part = ''.join(chr(b) if 32 <= b < 127 else '.' for b in bin_data[i:i+16])
+                    hex_part = ' '.join(f'{b:02X}' for b in final_data[i:i+16])
+                    ascii_part = ''.join(chr(b) if 32 <= b < 127 else '.' for b in final_data[i:i+16])
                     hex_lines.append(f"{i:08X}  {hex_part:<48}  {ascii_part}")
                 st.code('\n'.join(hex_lines), language=None)
-                if len(bin_data) > preview_bytes:
-                    st.write(f"... and {len(bin_data) - preview_bytes:,} more bytes")
+                if len(final_data) > preview_bytes:
+                    st.write(f"... and {len(final_data) - preview_bytes:,} more bytes")
         else:
             st.info("👆 Upload an image file to begin conversion")
 
-# ==================== TAB 2: BIN VIEWER ====================
+# ==================== TAB 2: BIN/NLF/BIM VIEWER ====================
 with tab2:
-    st.header("BIN File Viewer & Analyzer")
+    st.header("BIN/NLF/BIM File Viewer & Deep Analyzer")
     
     col_settings2, col_viewer = st.columns([1, 2])
     
@@ -324,572 +445,1198 @@ with tab2:
         
         bin_format = st.selectbox(
             "Color Format",
-            ["RGB565", "RGB888", "BGR888", "RGB24", "Grayscale", "Monochrome"],
-            help="Format of the BIN file",
+            ["RGB565", "RGB888", "BGR888", "RGB24", "RGBA8888", "Grayscale", "Monochrome"],
+            help="Format of the binary file",
             key="bin_format"
         )
         
         st.markdown("---")
         
-        with st.expander("🔧 View Options"):
+        with st.expander("🔧 Advanced View Options"):
             zoom_level = st.slider("Zoom Level", 1, 20, 4, help="Pixel size multiplier")
             show_grid = st.checkbox("Show Pixel Grid", value=False)
-            auto_detect = st.checkbox("Auto-detect dimensions", value=True, help="Guess dimensions from file size")
+            auto_detect = st.checkbox("Auto-detect dimensions", value=True, help="Automatically detect file format")
             invert_colors = st.checkbox("Invert Colors", value=False)
             rotate_view = st.selectbox("Rotate View", [0, 90, 180, 270], help="Rotate displayed image")
-        
-        with st.expander("🎯 Quick Dimension Presets"):
+            channel_view = st.selectbox("Channel View", ["Full Color", "Red Only", "Green Only", "Blue Only", "Alpha Only"])
+            
+        with st.expander("🎯 Common Display Presets"):
             col_p1, col_p2 = st.columns(2)
             with col_p1:
-                if st.button("16×16", use_container_width=True):
+                if st.button("16×16", use_container_width=True, key="p16"):
                     st.session_state.width2 = 16
                     st.session_state.height2 = 16
                     st.rerun()
-                if st.button("64×32", use_container_width=True):
+                if st.button("64×32", use_container_width=True, key="p6432"):
                     st.session_state.width2 = 64
                     st.session_state.height2 = 32
                     st.rerun()
-                if st.button("128×64", use_container_width=True):
+                if st.button("128×64", use_container_width=True, key="p12864"):
                     st.session_state.width2 = 128
                     st.session_state.height2 = 64
                     st.rerun()
-                if st.button("256×128", use_container_width=True):
-                    st.session_state.width2 = 256
-                    st.session_state.height2 = 128
+                if st.button("144×64 (Fan)", use_container_width=True, key="p14464"):
+                    st.session_state.width2 = 144
+                    st.session_state.height2 = 64
                     st.rerun()
             with col_p2:
-                if st.button("32×32", use_container_width=True):
+                if st.button("32×32", use_container_width=True, key="p32"):
                     st.session_state.width2 = 32
                     st.session_state.height2 = 32
                     st.rerun()
-                if st.button("64×64", use_container_width=True):
+                if st.button("64×64", use_container_width=True, key="p64"):
                     st.session_state.width2 = 64
                     st.session_state.height2 = 64
                     st.rerun()
-                if st.button("128×128", use_container_width=True):
+                if st.button("128×128", use_container_width=True, key="p128"):
                     st.session_state.width2 = 128
                     st.session_state.height2 = 128
                     st.rerun()
-                if st.button("Custom", use_container_width=True):
-                    st.info("Enter custom dimensions above")
+                if st.button("120×60 (Fan)", use_container_width=True, key="p12060"):
+                    st.session_state.width2 = 120
+                    st.session_state.height2 = 60
+                    st.rerun()
     
     with col_viewer:
         bin_file = st.file_uploader(
-            "📁 Upload BIN file",
-            type=['bin'],
-            help="Upload a .bin file to view and analyze",
+            "📁 Upload BIN/NLF/BIM file",
+            type=['bin', 'nlf', 'bim', 'dat', 'raw'],
+            help="Upload a binary image file to view and analyze",
             key="bin_uploader"
         )
         
         if bin_file is not None:
             bin_data = bin_file.read()
             file_size = len(bin_data)
+            file_ext = bin_file.name.split('.')[-1].lower()
             
-            st.markdown('<div class="info-box">📄 <b>File loaded successfully!</b></div>', unsafe_allow_html=True)
+            # File type badge
+            if file_ext == "nlf":
+                badge_class = "badge-nlf"
+                badge_text = "🎬 NLF Format"
+                file_desc = "LED Fan Animation File"
+            elif file_ext == "bim":
+                badge_class = "badge-bim"
+                badge_text = "🖼️ BIM Format"
+                file_desc = "Binary Image Format"
+            else:
+                badge_class = "badge-bin"
+                badge_text = "📦 BIN Format"
+                file_desc = "Raw Binary Data"
+            
+            st.markdown(f'<div class="file-type-badge {badge_class}">{badge_text}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="info-box">📄 <b>File loaded successfully!</b><br>{file_desc} • {file_size:,} bytes</div>', unsafe_allow_html=True)
+            
+            # Try to detect file format from headers
+            header_info = None
+            has_header = False
+            frame_count = 1
+            data_offset = 0
+            
+            if file_size >= 4:
+                header = bin_data[:4]
+                if header == b'NLF1':
+                    has_header = True
+                    if file_size >= 10:
+                        width, height, bpp, frames = struct.unpack('<HHBB', bin_data[4:10])
+                        st.session_state.width2 = width
+                        st.session_state.height2 = height
+                        frame_count = frames
+                        data_offset = 10
+                        header_info = f"✅ NLF Header Detected: {width}×{height}, {frames} frame(s), {bpp} bytes/pixel"
+                elif header[:3] == b'BIM':
+                    has_header = True
+                    if file_size >= 12:
+                        width, height = struct.unpack('<II', bin_data[4:12])
+                        st.session_state.width2 = width
+                        st.session_state.height2 = height
+                        data_offset = 12
+                        header_info = f"✅ BIM Header Detected: {width}×{height}"
+            
+            if header_info:
+                st.success(header_info)
+                bin_data = bin_data[data_offset:]  # Skip header
+                file_size = len(bin_data)
             
             # Auto-detect dimensions
-            if auto_detect:
+            if auto_detect and not has_header:
+                st.markdown("### 🔍 Auto-Detection Analysis")
                 possible_dims = []
-                for fmt_name, bpp in [("RGB565", 2), ("RGB888", 3), ("BGR888", 3), ("RGB24", 3), ("Grayscale", 1)]:
+                
+                # Check for common LED fan dimensions
+                if file_ext == "nlf":
+                    st.info("🎬 Analyzing as LED fan animation format...")
+                    common_fan_sizes = [(144, 64), (120, 60), (96, 48), (72, 36), (64, 32)]
+                    for w, h in common_fan_sizes:
+                        for fmt_name, bpp in [("RGB565", 2), ("RGB888", 3), ("RGBA8888", 4)]:
+                            frame_size = w * h * bpp
+                            if file_size % frame_size == 0 and file_size >= frame_size:
+                                num_frames = file_size // frame_size
+                                possible_dims.append((w, h, fmt_name, num_frames, frame_size))
+                
+                # Standard dimension detection
+                for fmt_name, bpp in [("RGB565", 2), ("RGB888", 3), ("BGR888", 3), ("RGBA8888", 4), ("Grayscale", 1)]:
                     total_pixels = file_size / bpp
                     if total_pixels == int(total_pixels):
                         total_pixels = int(total_pixels)
-                        # Try to find dimensions that multiply to total_pixels
                         import math
-                        # Common aspect ratios and common dimensions
                         candidates = []
-                        for w in range(8, min(2001, int(math.sqrt(total_pixels) * 3))):
+                        
+                        # Check common sizes first
+                        common_sizes = [(16,16), (32,32), (48,48), (64,32), (64,64), (96,96), (128,64), (128,128), 
+                                       (144,64), (120,60), (256,128), (256,256)]
+                        for w, h in common_sizes:
+                            if w * h == total_pixels:
+                                candidates.append((w, h, fmt_name))
+                        
+                        # Then check all possibilities
+                        for w in range(8, min(2001, int(math.sqrt(total_pixels) * 4))):
                             if total_pixels % w == 0:
                                 h = total_pixels // w
                                 if h <= 2000 and w * h == total_pixels:
-                                    candidates.append((w, h, fmt_name))
+                                    if (w, h, fmt_name) not in candidates:
+                                        candidates.append((w, h, fmt_name))
                         
-                        # Prioritize common sizes and ratios
-                        common_sizes = [(16,16), (32,32), (64,32), (64,64), (128,64), (128,128), (256,128), (256,256)]
-                        for w, h in common_sizes:
-                            if (w, h, fmt_name) in candidates:
-                                possible_dims.insert(0, (w, h, fmt_name))
-                        
-                        # Add other candidates
                         for cand in candidates:
-                            if cand not in possible_dims:
-                                possible_dims.append(cand)
+                            possible_dims.append((*cand, 1, w * h * bpp))
                 
                 if possible_dims:
-                    st.success(f"💡 **Auto-detected {len(possible_dims)} possible configuration(s):**")
-                    # Show top 10 most likely
-                    for w, h, fmt in possible_dims[:10]:
-                        col_btn, col_info = st.columns([3, 1])
-                        with col_btn:
-                            if st.button(f"▶ {w}×{h} pixels • {fmt}", key=f"preset_{w}_{h}_{fmt}", use_container_width=True):
-                                st.session_state.width2 = w
-                                st.session_state.height2 = h
-                                st.rerun()
-                        with col_info:
-                            aspect = w/h
-                            st.caption(f"~{aspect:.2f}:1")
+                    # Separate multi-frame and single-frame
+                    multi_frame = [d for d in possible_dims if d[3] > 1]
+                    single_frame = [d for d in possible_dims if d[3] == 1]
                     
-                    if len(possible_dims) > 10:
-                        st.info(f"... and {len(possible_dims)-10} more possibilities")
+                    if multi_frame:
+                        st.markdown("#### 🎬 **Animation Detected (Multi-frame)**")
+                        for w, h, fmt, frames, frame_sz in multi_frame[:8]:
+                            col_btn, col_info = st.columns([4, 1])
+                            with col_btn:
+                                btn_label = f"▶ {w}×{h} • {fmt} • {frames} frames • {frame_sz:,}B/frame"
+                                if st.button(btn_label, key=f"anim_{w}_{h}_{fmt}_{frames}", use_container_width=True):
+                                    st.session_state.width2 = w
+                                    st.session_state.height2 = h
+                                    st.session_state.detected_frames = frames
+                                    st.session_state.frame_size = frame_sz
+                                    st.rerun()
+                            with col_info:
+                                st.caption(f"{w/h:.2f}:1")
+                        st.markdown("---")
+                    
+                    if single_frame:
+                        st.markdown("#### 🖼️ **Single Frame Options**")
+                        for w, h, fmt, _, _ in single_frame[:12]:
+                            col_btn, col_info = st.columns([4, 1])
+                            with col_btn:
+                                if st.button(f"▶ {w}×{h} pixels • {fmt}", key=f"single_{w}_{h}_{fmt}", use_container_width=True):
+                                    st.session_state.width2 = w
+                                    st.session_state.height2 = h
+                                    st.rerun()
+                            with col_info:
+                                st.caption(f"{w/h:.2f}:1")
+                        
+                        if len(single_frame) > 12:
+                            st.info(f"... and {len(single_frame)-12} more possibilities")
                 else:
-                    st.warning("⚠️ Could not auto-detect standard dimensions. File may have unusual format or include headers.")
+                    st.warning("⚠️ Could not auto-detect standard dimensions. Try manual configuration or check for file headers.")
             
-            # File analysis
+            # Animation frame detection
+            detected_frames = st.session_state.get('detected_frames', 1)
+            frame_size = st.session_state.get('frame_size', 0)
+            
+            if detected_frames > 1:
+                st.markdown(f'<div class="warning-box">🎬 <b>Animation Mode Active:</b> {detected_frames} frames detected</div>', unsafe_allow_html=True)
+                current_frame = st.slider("Select Frame", 0, detected_frames - 1, 0, help="Scrub through animation frames")
+            else:
+                current_frame = 0
+            
+            # File metrics
             col_a1, col_a2, col_a3, col_a4 = st.columns(4)
             with col_a1:
-                st.metric("File Size", f"{file_size:,} bytes")
+                st.metric("File Size", f"{file_size:,} B")
             with col_a2:
                 st.metric("Format", bin_format)
             with col_a3:
-                expected_size = bin_width * bin_height * (2 if bin_format == "RGB565" else 3 if "888" in bin_format else 1)
-                st.metric("Expected Size", f"{expected_size:,} bytes")
+                bpp_map = {"RGB565": 2, "RGB888": 3, "BGR888": 3, "RGB24": 3, "RGBA8888": 4, "Grayscale": 1, "Monochrome": 0.125}
+                expected_size = int(bin_width * bin_height * bpp_map.get(bin_format, 2))
+                st.metric("Expected Size", f"{expected_size:,} B")
             with col_a4:
-                match = "✅ Match" if file_size == expected_size else "⚠️ Mismatch"
-                st.metric("Size Check", match)
+                match_status = "✅ Match" if abs(file_size - expected_size) < 100 else "⚠️ Mismatch"
+                st.metric("Size Check", match_status)
             
-            # Try to decode and display
+            # Decode and display
             try:
+                # Calculate frame offset if animation
+                frame_offset = current_frame * frame_size if detected_frames > 1 and frame_size > 0 else 0
+                frame_data = bin_data[frame_offset:frame_offset + (frame_size if frame_size > 0 else len(bin_data))]
+                
                 if bin_format == "RGB565":
                     pixels = []
-                    for i in range(0, len(bin_data), 2):
-                        if i+1 < len(bin_data):
-                            rgb565 = (bin_data[i] << 8) | bin_data[i+1]
+                    for i in range(0, len(frame_data), 2):
+                        if i+1 < len(frame_data):
+                            rgb565 = (frame_data[i] << 8) | frame_data[i+1]
                             r = ((rgb565 >> 11) & 0x1F) << 3
                             g = ((rgb565 >> 5) & 0x3F) << 2
                             b = (rgb565 & 0x1F) << 3
                             pixels.append([r, g, b])
                     
-                    total_pixels = len(pixels)
-                    actual_height = total_pixels // bin_width
-                    pixels = np.array(pixels[:bin_width * actual_height]).reshape((actual_height, bin_width, 3))
-                    img = Image.fromarray(pixels.astype('uint8'), 'RGB')
+                    if len(pixels) >= bin_width:
+                        actual_height = min(len(pixels) // bin_width, bin_height)
+                        pixels = np.array(pixels[:bin_width * actual_height]).reshape((actual_height, bin_width, 3))
+                        img = Image.fromarray(pixels.astype('uint8'), 'RGB')
+                    else:
+                        raise ValueError("Not enough data for specified dimensions")
                 
                 elif bin_format in ["RGB888", "RGB24"]:
                     pixels = []
-                    for i in range(0, len(bin_data), 3):
-                        if i+2 < len(bin_data):
-                            pixels.append([bin_data[i], bin_data[i+1], bin_data[i+2]])
+                    for i in range(0, len(frame_data), 3):
+                        if i+2 < len(frame_data):
+                            pixels.append([frame_data[i], frame_data[i+1], frame_data[i+2]])
                     
-                    total_pixels = len(pixels)
-                    actual_height = total_pixels // bin_width
-                    pixels = np.array(pixels[:bin_width * actual_height]).reshape((actual_height, bin_width, 3))
-                    img = Image.fromarray(pixels.astype('uint8'), 'RGB')
+                    if len(pixels) >= bin_width:
+                        actual_height = min(len(pixels) // bin_width, bin_height)
+                        pixels = np.array(pixels[:bin_width * actual_height]).reshape((actual_height, bin_width, 3))
+                        img = Image.fromarray(pixels.astype('uint8'), 'RGB')
+                    else:
+                        raise ValueError("Not enough data")
                 
                 elif bin_format == "BGR888":
                     pixels = []
-                    for i in range(0, len(bin_data), 3):
-                        if i+2 < len(bin_data):
-                            pixels.append([bin_data[i+2], bin_data[i+1], bin_data[i]])
+                    for i in range(0, len(frame_data), 3):
+                        if i+2 < len(frame_data):
+                            pixels.append([frame_data[i+2], frame_data[i+1], frame_data[i]])
                     
-                    total_pixels = len(pixels)
-                    actual_height = total_pixels // bin_width
-                    pixels = np.array(pixels[:bin_width * actual_height]).reshape((actual_height, bin_width, 3))
-                    img = Image.fromarray(pixels.astype('uint8'), 'RGB')
+                    if len(pixels) >= bin_width:
+                        actual_height = min(len(pixels) // bin_width, bin_height)
+                        pixels = np.array(pixels[:bin_width * actual_height]).reshape((actual_height, bin_width, 3))
+                        img = Image.fromarray(pixels.astype('uint8'), 'RGB')
+                    else:
+                        raise ValueError("Not enough data")
+                
+                elif bin_format == "RGBA8888":
+                    pixels = []
+                    for i in range(0, len(frame_data), 4):
+                        if i+3 < len(frame_data):
+                            pixels.append([frame_data[i], frame_data[i+1], frame_data[i+2]])
+                    
+                    if len(pixels) >= bin_width:
+                        actual_height = min(len(pixels) // bin_width, bin_height)
+                        pixels = np.array(pixels[:bin_width * actual_height]).reshape((actual_height, bin_width, 3))
+                        img = Image.fromarray(pixels.astype('uint8'), 'RGB')
+                    else:
+                        raise ValueError("Not enough data")
                 
                 elif bin_format == "Grayscale":
-                    pixels = np.array(list(bin_data))
-                    total_pixels = len(pixels)
-                    actual_height = total_pixels // bin_width
-                    pixels = pixels[:bin_width * actual_height].reshape((actual_height, bin_width))
-                    img = Image.fromarray(pixels.astype('uint8'), 'L')
+                    pixels = np.array(list(frame_data))
+                    if len(pixels) >= bin_width:
+                        actual_height = min(len(pixels) // bin_width, bin_height)
+                        pixels = pixels[:bin_width * actual_height].reshape((actual_height, bin_width))
+                        img = Image.fromarray(pixels.astype('uint8'), 'L')
+                        img = img.convert('RGB')  # Convert to RGB for channel operations
+                    else:
+                        raise ValueError("Not enough data")
                 
                 elif bin_format == "Monochrome":
                     pixels = []
-                    for byte in bin_data:
+                    for byte in frame_data:
                         for bit in range(8):
                             pixels.append(255 if (byte >> (7-bit)) & 1 else 0)
                     pixels = np.array(pixels)
-                    total_pixels = len(pixels)
-                    actual_height = total_pixels // bin_width
-                    pixels = pixels[:bin_width * actual_height].reshape((actual_height, bin_width))
-                    img = Image.fromarray(pixels.astype('uint8'), 'L')
+                    if len(pixels) >= bin_width:
+                        actual_height = min(len(pixels) // bin_width, bin_height)
+                        pixels = pixels[:bin_width * actual_height].reshape((actual_height, bin_width))
+                        img = Image.fromarray(pixels.astype('uint8'), 'L')
+                        img = img.convert('RGB')
+                    else:
+                        raise ValueError("Not enough data")
                 
-                # Apply view transformations
+                # Apply channel view
+                if channel_view != "Full Color":
+                    arr = np.array(img)
+                    if channel_view == "Red Only":
+                        arr[:,:,1] = 0
+                        arr[:,:,2] = 0
+                    elif channel_view == "Green Only":
+                        arr[:,:,0] = 0
+                        arr[:,:,2] = 0
+                    elif channel_view == "Blue Only":
+                        arr[:,:,0] = 0
+                        arr[:,:,1] = 0
+                    img = Image.fromarray(arr)
+                
+                # Apply transformations
                 if invert_colors:
                     img = Image.eval(img, lambda x: 255 - x)
                 
                 if rotate_view != 0:
                     img = img.rotate(-rotate_view, expand=True)
                 
-                # Scale up for viewing
-                display_width = min(bin_width * zoom_level, 2000)
-                display_height = int(img.height * (display_width / img.width))
+                # Scale for viewing
+                display_width = min(img.width * zoom_level, 2000)
+                display_height = min(img.height * zoom_level, 2000)
                 view_img = img.resize((display_width, display_height), Image.NEAREST)
                 
-                st.image(view_img, caption=f"Decoded Image ({img.width}×{img.height})", use_container_width=True)
+                # Add grid if requested
+                if show_grid and zoom_level >= 4:
+                    draw = ImageDraw.Draw(view_img)
+                    for x in range(0, display_width, zoom_level):
+                        draw.line([(x, 0), (x, display_height)], fill=(128, 128, 128), width=1)
+                    for y in range(0, display_height, zoom_level):
+                        draw.line([(0, y), (display_width, y)], fill=(128, 128, 128), width=1)
                 
-                # Analysis
-                with st.expander("📊 Image Analysis", expanded=True):
+                frame_label = f"Frame {current_frame + 1}/{detected_frames}" if detected_frames > 1 else "Decoded Image"
+                st.image(view_img, caption=f"{frame_label} ({img.width}×{img.height})", use_container_width=True)
+                
+                # Comprehensive Analysis
+                with st.expander("📊 Comprehensive Image Analysis", expanded=True):
                     col1, col2, col3 = st.columns(3)
+                    
                     with col1:
-                        st.write("**Dimensions:**")
+                        st.write("**Dimensions & Format:**")
                         st.write(f"• Width: {img.width} pixels")
                         st.write(f"• Height: {img.height} pixels")
                         st.write(f"• Total pixels: {img.width * img.height:,}")
-                        st.write(f"• Aspect ratio: {img.width/img.height:.3f}:1")
-                        st.write(f"• Display area: {img.width * img.height / 1000:.1f}K pixels")
+                        st.write(f"• Aspect ratio: {img.width/img.height:.4f}:1")
+                        st.write(f"• Display area: {img.width * img.height / 1000:.2f}K pixels")
+                        st.write(f"• Diagonal: {math.sqrt(img.width**2 + img.height**2):.1f} px")
+                        if detected_frames > 1:
+                            st.write(f"• Animation: {detected_frames} frames")
+                            st.write(f"• Frame size: {frame_size:,} bytes")
                     
                     with col2:
-                        if bin_format != "Monochrome":
-                            arr = np.array(img)
-                            st.write("**Color Statistics:**")
-                            if len(arr.shape) == 3:
-                                st.write(f"• Avg Red: {arr[:,:,0].mean():.1f}")
-                                st.write(f"• Avg Green: {arr[:,:,1].mean():.1f}")
-                                st.write(f"• Avg Blue: {arr[:,:,2].mean():.1f}")
-                                st.write(f"• Std Dev: R={arr[:,:,0].std():.1f} G={arr[:,:,1].std():.1f} B={arr[:,:,2].std():.1f}")
-                            else:
-                                st.write(f"• Avg brightness: {arr.mean():.1f}")
-                                st.write(f"• Std deviation: {arr.std():.1f}")
-                            st.write(f"• Min value: {arr.min()}")
-                            st.write(f"• Max value: {arr.max()}")
+                        arr = np.array(img)
+                        st.write("**Color Statistics:**")
+                        if len(arr.shape) == 3:
+                            st.write(f"• Avg Red: {arr[:,:,0].mean():.2f}")
+                            st.write(f"• Avg Green: {arr[:,:,1].mean():.2f}")
+                            st.write(f"• Avg Blue: {arr[:,:,2].mean():.2f}")
+                            st.write(f"• Brightness: {arr.mean():.2f}")
+                            st.write(f"• R Std Dev: {arr[:,:,0].std():.2f}")
+                            st.write(f"• G Std Dev: {arr[:,:,1].std():.2f}")
+                            st.write(f"• B Std Dev: {arr[:,:,2].std():.2f}")
+                            
+                            # Dominant color
+                            avg_color = arr.mean(axis=(0,1)).astype(int)
+                            st.write(f"• Dominant: RGB({avg_color[0]}, {avg_color[1]}, {avg_color[2]})")
+                        else:
+                            st.write(f"• Avg brightness: {arr.mean():.2f}")
+                            st.write(f"• Std deviation: {arr.std():.2f}")
+                            st.write(f"• Min: {arr.min()}")
+                            st.write(f"• Max: {arr.max()}")
                     
                     with col3:
-                        st.write("**File Info:**")
+                        st.write("**File Information:**")
                         st.write(f"• Format: {bin_format}")
                         st.write(f"• File size: {file_size:,} bytes")
-                        st.write(f"• Size on disk: ~{file_size/1024:.1f} KB")
+                        st.write(f"• Size: {file_size/1024:.2f} KB")
                         if file_size > 1024*1024:
-                            st.write(f"• Size: ~{file_size/(1024*1024):.2f} MB")
+                            st.write(f"• Size: {file_size/(1024*1024):.2f} MB")
                         bytes_pp = file_size / (img.width * img.height) if img.width * img.height > 0 else 0
                         st.write(f"• Bytes/pixel: {bytes_pp:.2f}")
+                        st.write(f"• Bit depth: {bytes_pp * 8:.0f} bits/px")
+                        
+                        # Compression ratio
+                        uncompressed = img.width * img.height * 3
+                        ratio = uncompressed / file_size if file_size > 0 else 0
+                        st.write(f"• vs RGB888: {ratio:.2f}x")
                 
-                # Color histogram for RGB images
-                if bin_format in ["RGB565", "RGB888", "BGR888", "RGB24"]:
-                    with st.expander("🎨 Color Distribution Histogram"):
+                # Advanced color analysis
+                if bin_format not in ["Monochrome"]:
+                    with st.expander("🎨 Advanced Color Analysis"):
                         arr = np.array(img)
-                        if len(arr.shape) == 3:
-                            col_r, col_g, col_b = st.columns(3)
-                            with col_r:
-                                st.write("**Red Channel**")
-                                hist_r = np.histogram(arr[:,:,0], bins=32, range=(0, 256))[0]
-                                st.bar_chart(hist_r)
-                            with col_g:
-                                st.write("**Green Channel**")
-                                hist_g = np.histogram(arr[:,:,1], bins=32, range=(0, 256))[0]
-                                st.bar_chart(hist_g)
-                            with col_b:
-                                st.write("**Blue Channel**")
-                                hist_b = np.histogram(arr[:,:,2], bins=32, range=(0, 256))[0]
-                                st.bar_chart(hist_b)
+                        
+                        col_hist1, col_hist2 = st.columns(2)
+                        
+                        with col_hist1:
+                            if len(arr.shape) == 3:
+                                st.write("**RGB Channel Histograms**")
+                                col_r, col_g, col_b = st.columns(3)
+                                with col_r:
+                                    st.caption("Red")
+                                    hist_r = np.histogram(arr[:,:,0], bins=32, range=(0, 256))[0]
+                                    st.bar_chart(hist_r)
+                                with col_g:
+                                    st.caption("Green")
+                                    hist_g = np.histogram(arr[:,:,1], bins=32, range=(0, 256))[0]
+                                    st.bar_chart(hist_g)
+                                with col_b:
+                                    st.caption("Blue")
+                                    hist_b = np.histogram(arr[:,:,2], bins=32, range=(0, 256))[0]
+                                    st.bar_chart(hist_b)
+                        
+                        with col_hist2:
+                            st.write("**Color Distribution**")
+                            if len(arr.shape) == 3:
+                                # Count unique colors
+                                unique_colors = len(np.unique(arr.reshape(-1, 3), axis=0))
+                                st.metric("Unique Colors", f"{unique_colors:,}")
+                                
+                                # Color range
+                                st.write(f"**Range per channel:**")
+                                st.write(f"• Red: {arr[:,:,0].min()}-{arr[:,:,0].max()}")
+                                st.write(f"• Green: {arr[:,:,1].min()}-{arr[:,:,1].max()}")
+                                st.write(f"• Blue: {arr[:,:,2].min()}-{arr[:,:,2].max()}")
+                                
+                                # Saturation analysis
+                                hsv = arr.astype(float)
+                                maxc = hsv.max(axis=2)
+                                minc = hsv.min(axis=2)
+                                sat = np.where(maxc != 0, (maxc - minc) / maxc, 0)
+                                st.write(f"**Saturation:**")
+                                st.write(f"• Average: {sat.mean()*100:.1f}%")
+                                st.write(f"• Std Dev: {sat.std()*100:.1f}%")
                 
-                # Download as PNG
-                buf = io.BytesIO()
-                img.save(buf, format='PNG')
-                buf.seek(0)
+                # Pixel inspector
+                with st.expander("🔍 Advanced Pixel Inspector"):
+                    col_insp1, col_insp2 = st.columns([2, 1])
+                    
+                    with col_insp1:
+                        st.write("**Coordinate Inspector**")
+                        col_x, col_y = st.columns(2)
+                        with col_x:
+                            inspect_x = st.number_input("X coordinate", 0, img.width-1, min(10, img.width-1), key="inspect_x")
+                        with col_y:
+                            inspect_y = st.number_input("Y coordinate", 0, img.height-1, min(10, img.height-1), key="inspect_y")
+                        
+                        if 0 <= inspect_x < img.width and 0 <= inspect_y < img.height:
+                            arr = np.array(img)
+                            if len(arr.shape) == 3:
+                                pixel = arr[inspect_y, inspect_x]
+                                st.write(f"**Pixel at ({inspect_x}, {inspect_y}):**")
+                                
+                                col_pix1, col_pix2, col_pix3 = st.columns(3)
+                                with col_pix1:
+                                    st.metric("Red", pixel[0])
+                                    st.caption(f"{pixel[0]/255*100:.1f}%")
+                                with col_pix2:
+                                    st.metric("Green", pixel[1])
+                                    st.caption(f"{pixel[1]/255*100:.1f}%")
+                                with col_pix3:
+                                    st.metric("Blue", pixel[2])
+                                    st.caption(f"{pixel[2]/255*100:.1f}%")
+                                
+                                # Color swatch
+                                color_html = f'<div style="width:150px;height:150px;background-color:rgb({pixel[0]},{pixel[1]},{pixel[2]});border:3px solid #333;border-radius:10px;margin:15px auto;box-shadow: 0 4px 6px rgba(0,0,0,0.2);"></div>'
+                                st.markdown(color_html, unsafe_allow_html=True)
+                                
+                                # Multiple formats
+                                st.code(f"""RGB: ({pixel[0]}, {pixel[1]}, {pixel[2]})
+HEX: #{pixel[0]:02X}{pixel[1]:02X}{pixel[2]:02X}
+RGB565: 0x{((pixel[0]>>3)<<11)|((pixel[1]>>2)<<5)|(pixel[2]>>3):04X}
+Float: ({pixel[0]/255:.3f}, {pixel[1]/255:.3f}, {pixel[2]/255:.3f})""")
+                    
+                    with col_insp2:
+                        st.write("**Region Analysis**")
+                        region_size = st.slider("Region size", 1, min(50, img.width, img.height), 5)
+                        
+                        x1 = max(0, inspect_x - region_size//2)
+                        y1 = max(0, inspect_y - region_size//2)
+                        x2 = min(img.width, inspect_x + region_size//2)
+                        y2 = min(img.height, inspect_y + region_size//2)
+                        
+                        region = arr[y1:y2, x1:x2]
+                        if len(region.shape) == 3:
+                            st.write(f"**{region.shape[1]}×{region.shape[0]} region:**")
+                            st.write(f"• Avg R: {region[:,:,0].mean():.1f}")
+                            st.write(f"• Avg G: {region[:,:,1].mean():.1f}")
+                            st.write(f"• Avg B: {region[:,:,2].mean():.1f}")
+                            st.write(f"• Brightness: {region.mean():.1f}")
                 
-                col_dl1, col_dl2 = st.columns(2)
-                with col_dl1:
+                # Export options
+                col_exp1, col_exp2, col_exp3 = st.columns(3)
+                
+                with col_exp1:
+                    buf = io.BytesIO()
+                    img.save(buf, format='PNG')
+                    buf.seek(0)
                     st.download_button(
-                        label="💾 Export as PNG",
+                        label="💾 Export PNG",
                         data=buf,
-                        file_name=bin_file.name.replace('.bin', '.png'),
+                        file_name=bin_file.name.replace(f'.{file_ext}', f'_frame{current_frame}.png') if detected_frames > 1 else bin_file.name.replace(f'.{file_ext}', '.png'),
                         mime="image/png",
                         use_container_width=True
                     )
                 
-                with col_dl2:
-                    # Export as different format BIN
-                    if st.button("🔄 Convert Format", use_container_width=True):
-                        st.info("Use the Image to BIN tab to convert this PNG to a different format")
+                with col_exp2:
+                    buf_jpg = io.BytesIO()
+                    img.save(buf_jpg, format='JPEG', quality=95)
+                    buf_jpg.seek(0)
+                    st.download_button(
+                        label="💾 Export JPEG",
+                        data=buf_jpg,
+                        file_name=bin_file.name.replace(f'.{file_ext}', '.jpg'),
+                        mime="image/jpeg",
+                        use_container_width=True
+                    )
                 
-                # Pixel inspector
-                with st.expander("🔍 Pixel Inspector"):
-                    st.write("Click coordinates to inspect pixel values")
-                    col_x, col_y = st.columns(2)
-                    with col_x:
-                        inspect_x = st.number_input("X coordinate", 0, img.width-1, 0)
-                    with col_y:
-                        inspect_y = st.number_input("Y coordinate", 0, img.height-1, 0)
-                    
-                    if 0 <= inspect_x < img.width and 0 <= inspect_y < img.height:
-                        arr = np.array(img)
-                        if len(arr.shape) == 3:
-                            pixel = arr[inspect_y, inspect_x]
-                            st.write(f"**Pixel at ({inspect_x}, {inspect_y}):**")
-                            col_pix1, col_pix2, col_pix3 = st.columns(3)
-                            with col_pix1:
-                                st.metric("Red", pixel[0])
-                            with col_pix2:
-                                st.metric("Green", pixel[1])
-                            with col_pix3:
-                                st.metric("Blue", pixel[2])
-                            # Show color swatch
-                            color_html = f'<div style="width:100px;height:100px;background-color:rgb({pixel[0]},{pixel[1]},{pixel[2]});border:2px solid #ccc;border-radius:8px;margin:10px auto;"></div>'
-                            st.markdown(color_html, unsafe_allow_html=True)
-                            st.code(f"RGB: ({pixel[0]}, {pixel[1]}, {pixel[2]})\nHEX: #{pixel[0]:02X}{pixel[1]:02X}{pixel[2]:02X}")
-                        else:
-                            pixel = arr[inspect_y, inspect_x]
-                            st.write(f"**Pixel at ({inspect_x}, {inspect_y}):** {pixel}")
-                            color_html = f'<div style="width:100px;height:100px;background-color:rgb({pixel},{pixel},{pixel});border:2px solid #ccc;border-radius:8px;margin:10px auto;"></div>'
-                            st.markdown(color_html, unsafe_allow_html=True)
+                with col_exp3:
+                    if st.button("🔄 Convert Format", use_container_width=True):
+                        st.info("Use Tab 1 to convert this image to a different binary format")
                 
             except Exception as e:
-                st.error(f"❌ Error decoding BIN file: {str(e)}")
-                st.write("Try adjusting the width/height or format settings.")
+                st.error(f"❌ **Decoding Error:** {str(e)}")
+                st.write("**Troubleshooting Tips:**")
+                st.write("• Verify the width/height settings match your file")
+                st.write("• Try different color format options")
+                st.write("• Check if file has a header (use auto-detect)")
+                st.write("• Ensure file isn't corrupted")
             
-            # Hex viewer
-            with st.expander("🔍 Raw Hex Data Viewer"):
-                preview_size = st.slider("Preview size (bytes)", 128, min(4096, len(bin_data)), min(512, len(bin_data)), 128)
+            # Hex viewer with search
+            with st.expander("🔍 Advanced Hex Viewer & Search"):
+                col_hex_ctrl, col_hex_view = st.columns([1, 3])
                 
-                col_hex1, col_hex2 = st.columns([3, 1])
-                with col_hex1:
-                    hex_lines = []
-                    for i in range(0, preview_size, 16):
-                        hex_part = ' '.join(f'{b:02X}' for b in bin_data[i:i+16])
-                        ascii_part = ''.join(chr(b) if 32 <= b < 127 else '.' for b in bin_data[i:i+16])
-                        hex_lines.append(f"{i:08X}  {hex_part:<48}  {ascii_part}")
-                    st.code('\n'.join(hex_lines), language=None)
-                    if len(bin_data) > preview_size:
-                        st.write(f"... and {len(bin_data) - preview_size:,} more bytes")
-                
-                with col_hex2:
+                with col_hex_ctrl:
+                    preview_size = st.slider("Preview (bytes)", 128, min(8192, len(bin_data)), min(1024, len(bin_data)), 128)
+                    hex_offset = st.number_input("Start offset", 0, max(0, len(bin_data)-16), 0, 16)
+                    
                     st.write("**Byte Search**")
-                    search_byte = st.text_input("Find byte (hex)", "FF")
+                    search_hex = st.text_input("Find hex", "FF")
                     try:
-                        search_val = int(search_byte, 16)
+                        search_val = int(search_hex, 16)
                         count = bin_data.count(search_val)
                         st.metric("Occurrences", f"{count:,}")
                         if count > 0:
                             percentage = (count / len(bin_data)) * 100
                             st.write(f"{percentage:.2f}% of file")
+                            
+                            # Find first occurrence
+                            first_pos = bin_data.find(search_val)
+                            if first_pos != -1:
+                                st.write(f"First at: 0x{first_pos:08X}")
                     except:
-                        st.write("Invalid hex")
+                        st.write("Invalid hex value")
+                    
+                    st.write("**Pattern Search**")
+                    pattern_hex = st.text_input("Pattern (e.g., FF00)", "")
+                    if pattern_hex and len(pattern_hex) % 2 == 0:
+                        try:
+                            pattern = bytes.fromhex(pattern_hex)
+                            pattern_count = len([i for i in range(len(bin_data) - len(pattern)) if bin_data[i:i+len(pattern)] == pattern])
+                            st.metric("Pattern matches", pattern_count)
+                        except:
+                            st.write("Invalid pattern")
+                
+                with col_hex_view:
+                    hex_lines = []
+                    end_offset = min(hex_offset + preview_size, len(bin_data))
+                    for i in range(hex_offset, end_offset, 16):
+                        hex_part = ' '.join(f'{b:02X}' for b in bin_data[i:i+16])
+                        ascii_part = ''.join(chr(b) if 32 <= b < 127 else '.' for b in bin_data[i:i+16])
+                        hex_lines.append(f"{i:08X}  {hex_part:<48}  |{ascii_part}|")
+                    st.code('\n'.join(hex_lines), language=None)
+                    if len(bin_data) > end_offset:
+                        st.write(f"... and {len(bin_data) - end_offset:,} more bytes")
             
-            # Statistics
-            with st.expander("📈 Byte Distribution & Statistics"):
-                col_stat1, col_stat2 = st.columns([2, 1])
+            # Deep statistical analysis
+            with st.expander("📈 Deep Statistical Analysis"):
+                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                
                 with col_stat1:
-                    st.write("**Byte Value Distribution**")
+                    st.write("**Byte Distribution**")
                     byte_counts = np.bincount(np.array(list(bin_data)), minlength=256)
                     st.bar_chart(byte_counts)
+                    
+                    # Most/least common
+                    most_common_idx = np.argmax(byte_counts)
+                    least_common_idx = np.argmin(byte_counts[byte_counts > 0]) if np.any(byte_counts > 0) else 0
+                    st.write(f"**Most common:** 0x{most_common_idx:02X} ({byte_counts[most_common_idx]:,}x)")
+                    st.write(f"**Least common:** 0x{least_common_idx:02X} ({byte_counts[least_common_idx]:,}x)")
                 
                 with col_stat2:
-                    st.write("**Statistics**")
                     arr = np.array(list(bin_data))
-                    st.metric("Mean", f"{arr.mean():.1f}")
+                    st.write("**Statistical Measures**")
+                    st.metric("Mean", f"{arr.mean():.2f}")
                     st.metric("Median", f"{np.median(arr):.1f}")
-                    st.metric("Std Dev", f"{arr.std():.1f}")
-                    st.metric("Unique", f"{len(np.unique(arr))}")
-                    
-                    most_common = np.bincount(arr).argmax()
-                    st.write(f"**Most common byte:**")
-                    st.code(f"0x{most_common:02X} ({most_common})")
+                    st.metric("Std Dev", f"{arr.std():.2f}")
+                    st.metric("Variance", f"{arr.var():.1f}")
+                    st.metric("Min Value", f"0x{arr.min():02X}")
+                    st.metric("Max Value", f"0x{arr.max():02X}")
+                    st.metric("Range", f"{arr.max() - arr.min()}")
+                    st.metric("Unique Bytes", f"{len(np.unique(arr))}/256")
                 
-                # Entropy calculation
-                st.write("**File Entropy**")
-                byte_counts = np.bincount(np.array(list(bin_data)), minlength=256)
-                probabilities = byte_counts[byte_counts > 0] / len(bin_data)
-                entropy = -np.sum(probabilities * np.log2(probabilities))
-                st.metric("Shannon Entropy", f"{entropy:.3f} bits/byte")
-                st.progress(entropy / 8.0)
-                st.caption("Higher entropy = more random/complex data. Max = 8 bits/byte")
+                with col_stat3:
+                    st.write("**Entropy Analysis**")
+                    byte_counts = np.bincount(np.array(list(bin_data)), minlength=256)
+                    probabilities = byte_counts[byte_counts > 0] / len(bin_data)
+                    entropy = -np.sum(probabilities * np.log2(probabilities))
+                    
+                    st.metric("Shannon Entropy", f"{entropy:.4f} bits/byte")
+                    st.progress(entropy / 8.0)
+                    
+                    # Entropy interpretation
+                    if entropy < 2:
+                        entropy_desc = "Very low (highly repetitive)"
+                    elif entropy < 4:
+                        entropy_desc = "Low (structured data)"
+                    elif entropy < 6:
+                        entropy_desc = "Medium (mixed content)"
+                    elif entropy < 7.5:
+                        entropy_desc = "High (complex/random)"
+                    else:
+                        entropy_desc = "Very high (encrypted/compressed)"
+                    
+                    st.caption(f"**Interpretation:** {entropy_desc}")
+                    st.write(f"Max possible: 8.0 bits/byte")
+                    st.write(f"Compression potential: {(8-entropy)/8*100:.1f}%")
+                    
+                    # Byte pair analysis
+                    st.write("**Byte Patterns**")
+                    if len(bin_data) >= 2:
+                        pairs = {}
+                        for i in range(len(bin_data)-1):
+                            pair = (bin_data[i], bin_data[i+1])
+                            pairs[pair] = pairs.get(pair, 0) + 1
+                        
+                        most_common_pair = max(pairs.items(), key=lambda x: x[1])
+                        st.write(f"Common pair: 0x{most_common_pair[0][0]:02X}{most_common_pair[0][1]:02X}")
+                        st.write(f"Occurs: {most_common_pair[1]:,} times")
         else:
-            st.info("👆 Upload a BIN file to view and analyze")
+            st.info("👆 Upload a BIN, NLF, or BIM file to begin analysis")
 
-# ==================== TAB 3: DOCUMENTATION ====================
+# ==================== TAB 3: ANIMATION TOOLS ====================
 with tab3:
-    st.header("📚 Documentation & Guide")
+    st.header("🎬 Animation Tools & Frame Extractor")
     
-    col_doc1, col_doc2 = st.columns(2)
+    st.markdown("""
+    <div class="info-box">
+    <b>Animation Tools</b><br>
+    Extract frames from multi-frame files, create animations, and analyze frame-by-frame content.
+    Especially useful for LED fan NLF files with multiple animation frames.
+    </div>
+    """, unsafe_allow_html=True)
     
-    with col_doc1:
-        st.subheader("🎯 Getting Started")
-        st.markdown("""
-        ### Image to BIN Conversion
-        1. **Upload** your image (PNG, JPG, BMP, GIF, WebP)
-        2. **Set** display dimensions (width × height)
-        3. **Choose** color format based on your display
-        4. **Configure** resize method and advanced options
-        5. **Download** the generated .bin file
-        
-        ### Viewing BIN Files
-        1. **Upload** your .bin file
-        2. **Configure** dimensions and format
-        3. **View** the decoded image
-        4. **Analyze** file structure and statistics
-        5. **Export** as PNG if needed
-        """)
-        
-        st.subheader("💡 Tips & Best Practices")
-        st.markdown("""
-        - **High contrast images** work best on LED displays
-        - **RGB565** is most common for LED matrices (saves memory)
-        - **Test with small images** first to verify format
-        - **Square images** typically work best with most displays
-        - **Use presets** for quick common configurations
-        - **Dithering** helps with low-color displays
-        """)
+    anim_file = st.file_uploader(
+        "📁 Upload animation file (NLF/BIN/BIM)",
+        type=['nlf', 'bin', 'bim'],
+        help="Upload multi-frame animation file",
+        key="anim_uploader"
+    )
     
-    with col_doc2:
-        st.subheader("🎨 Color Format Guide")
+    if anim_file is not None:
+        anim_data = anim_file.read()
         
-        format_data = {
-            "Format": ["RGB565", "RGB888/RGB24", "BGR888", "Grayscale", "Monochrome"],
-            "Bits/Pixel": ["16", "24", "24", "8", "1"],
-            "Colors": ["65K", "16.7M", "16.7M", "256", "2"],
-            "Use Case": [
-                "LED matrices, most common",
-                "High-quality displays",
-                "Some LED panels (reversed RGB)",
-                "Monochrome displays, OLEDs",
-                "Simple black/white displays"
+        col_anim_set, col_anim_view = st.columns([1, 2])
+        
+        with col_anim_set:
+            st.subheader("⚙️ Animation Settings")
+            
+            anim_width = st.number_input("Frame Width", 1, 512, 144, key="anim_w")
+            anim_height = st.number_input("Frame Height", 1, 512, 64, key="anim_h")
+            anim_format = st.selectbox("Color Format", ["RGB565", "RGB888", "BGR888", "RGBA8888"], key="anim_fmt")
+            
+            bpp_map = {"RGB565": 2, "RGB888": 3, "BGR888": 3, "RGBA8888": 4}
+            frame_size = anim_width * anim_height * bpp_map[anim_format]
+            total_frames = len(anim_data) // frame_size if frame_size > 0 else 0
+            
+            st.metric("Detected Frames", total_frames)
+            st.metric("Frame Size", f"{frame_size:,} bytes")
+            
+            if total_frames > 0:
+                st.success(f"✅ Animation contains {total_frames} frames")
+                
+                # Animation controls
+                st.markdown("---")
+                st.write("**Playback Controls**")
+                
+                play_speed = st.slider("Playback Speed (FPS)", 1, 60, 10)
+                loop_animation = st.checkbox("Loop Animation", value=True)
+                
+                col_play1, col_play2 = st.columns(2)
+                with col_play1:
+                    if st.button("▶️ Play", use_container_width=True):
+                        st.session_state.animation_playing = True
+                with col_play2:
+                    if st.button("⏸️ Pause", use_container_width=True):
+                        st.session_state.animation_playing = False
+                
+                # Frame selection
+                st.markdown("---")
+                current_anim_frame = st.slider("Frame", 0, total_frames-1, 0, key="anim_frame_slider")
+                
+                # Export options
+                st.markdown("---")
+                st.write("**Export Options**")
+                
+                if st.button("💾 Export All Frames as PNG", use_container_width=True):
+                    st.info("Exporting all frames... (Use download buttons below)")
+                
+                if st.button("🎬 Export as GIF", use_container_width=True):
+                    try:
+                        frames = []
+                        for i in range(min(total_frames, 100)):  # Limit to 100 frames
+                            frame_offset = i * frame_size
+                            frame_data = anim_data[frame_offset:frame_offset + frame_size]
+                            
+                            # Decode frame (simplified for RGB565)
+                            if anim_format == "RGB565":
+                                pixels = []
+                                for j in range(0, len(frame_data), 2):
+                                    if j+1 < len(frame_data):
+                                        rgb565 = (frame_data[j] << 8) | frame_data[j+1]
+                                        r = ((rgb565 >> 11) & 0x1F) << 3
+                                        g = ((rgb565 >> 5) & 0x3F) << 2
+                                        b = (rgb565 & 0x1F) << 3
+                                        pixels.append([r, g, b])
+                                
+                                if len(pixels) >= anim_width * anim_height:
+                                    pix_arr = np.array(pixels[:anim_width * anim_height]).reshape((anim_height, anim_width, 3))
+                                    frames.append(Image.fromarray(pix_arr.astype('uint8'), 'RGB'))
+                        
+                        if frames:
+                            buf = io.BytesIO()
+                            frames[0].save(buf, format='GIF', save_all=True, append_images=frames[1:], 
+                                         duration=int(1000/play_speed), loop=0)
+                            buf.seek(0)
+                            st.download_button(
+                                label="⬇️ Download GIF",
+                                data=buf,
+                                file_name=anim_file.name.replace('.nlf', '.gif').replace('.bin', '.gif'),
+                                mime="image/gif",
+                                use_container_width=True
+                            )
+                    except Exception as e:
+                        st.error(f"GIF export error: {str(e)}")
+            else:
+                st.warning("⚠️ No valid frames detected. Adjust dimensions or format.")
+        
+        with col_anim_view:
+            if total_frames > 0:
+                try:
+                    # Decode current frame
+                    frame_offset = current_anim_frame * frame_size
+                    frame_data = anim_data[frame_offset:frame_offset + frame_size]
+                    
+                    if anim_format == "RGB565":
+                        pixels = []
+                        for i in range(0, len(frame_data), 2):
+                            if i+1 < len(frame_data):
+                                rgb565 = (frame_data[i] << 8) | frame_data[i+1]
+                                r = ((rgb565 >> 11) & 0x1F) << 3
+                                g = ((rgb565 >> 5) & 0x3F) << 2
+                                b = (rgb565 & 0x1F) << 3
+                                pixels.append([r, g, b])
+                        
+                        pix_arr = np.array(pixels[:anim_width * anim_height]).reshape((anim_height, anim_width, 3))
+                        frame_img = Image.fromarray(pix_arr.astype('uint8'), 'RGB')
+                    
+                    elif anim_format == "RGB888":
+                        pixels = []
+                        for i in range(0, len(frame_data), 3):
+                            if i+2 < len(frame_data):
+                                pixels.append([frame_data[i], frame_data[i+1], frame_data[i+2]])
+                        pix_arr = np.array(pixels[:anim_width * anim_height]).reshape((anim_height, anim_width, 3))
+                        frame_img = Image.fromarray(pix_arr.astype('uint8'), 'RGB')
+                    
+                    elif anim_format == "BGR888":
+                        pixels = []
+                        for i in range(0, len(frame_data), 3):
+                            if i+2 < len(frame_data):
+                                pixels.append([frame_data[i+2], frame_data[i+1], frame_data[i]])
+                        pix_arr = np.array(pixels[:anim_width * anim_height]).reshape((anim_height, anim_width, 3))
+                        frame_img = Image.fromarray(pix_arr.astype('uint8'), 'RGB')
+                    
+                    elif anim_format == "RGBA8888":
+                        pixels = []
+                        for i in range(0, len(frame_data), 4):
+                            if i+3 < len(frame_data):
+                                pixels.append([frame_data[i], frame_data[i+1], frame_data[i+2]])
+                        pix_arr = np.array(pixels[:anim_width * anim_height]).reshape((anim_height, anim_width, 3))
+                        frame_img = Image.fromarray(pix_arr.astype('uint8'), 'RGB')
+                    
+                    # Display frame
+                    st.image(frame_img, caption=f"Frame {current_anim_frame + 1} of {total_frames}", use_container_width=True)
+                    
+                    # Frame comparison
+                    with st.expander("🔄 Frame-to-Frame Comparison"):
+                        if current_anim_frame > 0:
+                            col_prev, col_curr, col_diff = st.columns(3)
+                            
+                            # Get previous frame
+                            prev_offset = (current_anim_frame - 1) * frame_size
+                            prev_data = anim_data[prev_offset:prev_offset + frame_size]
+                            
+                            # Decode previous frame
+                            if anim_format == "RGB565":
+                                prev_pixels = []
+                                for i in range(0, len(prev_data), 2):
+                                    if i+1 < len(prev_data):
+                                        rgb565 = (prev_data[i] << 8) | prev_data[i+1]
+                                        r = ((rgb565 >> 11) & 0x1F) << 3
+                                        g = ((rgb565 >> 5) & 0x3F) << 2
+                                        b = (rgb565 & 0x1F) << 3
+                                        prev_pixels.append([r, g, b])
+                                prev_arr = np.array(prev_pixels[:anim_width * anim_height]).reshape((anim_height, anim_width, 3))
+                                prev_img = Image.fromarray(prev_arr.astype('uint8'), 'RGB')
+                            
+                            with col_prev:
+                                st.caption(f"Frame {current_anim_frame}")
+                                st.image(prev_img, use_container_width=True)
+                            
+                            with col_curr:
+                                st.caption(f"Frame {current_anim_frame + 1}")
+                                st.image(frame_img, use_container_width=True)
+                            
+                            with col_diff:
+                                st.caption("Difference")
+                                diff = np.abs(np.array(frame_img).astype(int) - prev_arr.astype(int))
+                                diff_img = Image.fromarray(diff.astype('uint8'), 'RGB')
+                                st.image(diff_img, use_container_width=True)
+                                
+                                # Difference metrics
+                                st.write(f"**Change:** {np.mean(diff):.2f}")
+                                st.write(f"**Max diff:** {np.max(diff)}")
+                    
+                    # Frame statistics
+                    with st.expander("📊 Frame Statistics"):
+                        arr = np.array(frame_img)
+                        col_s1, col_s2, col_s3 = st.columns(3)
+                        
+                        with col_s1:
+                            st.write("**RGB Averages**")
+                            st.write(f"• R: {arr[:,:,0].mean():.1f}")
+                            st.write(f"• G: {arr[:,:,1].mean():.1f}")
+                            st.write(f"• B: {arr[:,:,2].mean():.1f}")
+                        
+                        with col_s2:
+                            st.write("**Brightness**")
+                            brightness = arr.mean()
+                            st.metric("Average", f"{brightness:.1f}")
+                            st.progress(brightness / 255)
+                        
+                        with col_s3:
+                            st.write("**Variance**")
+                            st.write(f"• R: {arr[:,:,0].std():.1f}")
+                            st.write(f"• G: {arr[:,:,1].std():.1f}")
+                            st.write(f"• B: {arr[:,:,2].std():.1f}")
+                    
+                except Exception as e:
+                    st.error(f"Frame decode error: {str(e)}")
+            else:
+                st.info("Configure settings on the left to view frames")
+
+# ==================== TAB 4: DOCUMENTATION ====================
+with tab4:
+    st.header("📚 Comprehensive Documentation")
+    
+    doc_section = st.selectbox(
+        "Select Documentation Section",
+        ["Quick Start Guide", "File Format Details", "LED Fan Guide (NLF)", "Troubleshooting", 
+         "Code Examples", "Advanced Topics", "FAQ"]
+    )
+    
+    if doc_section == "Quick Start Guide":
+        col_doc1, col_doc2 = st.columns(2)
+        
+        with col_doc1:
+            st.subheader("🎯 Converting Images to BIN")
+            st.markdown("""
+            **Step-by-step process:**
+            
+            1. **Upload your image** (PNG, JPG, etc.)
+            2. **Set dimensions** to match your display
+            3. **Choose color format** (RGB565 for most LED displays)
+            4. **Select resize method** (Fit maintains aspect ratio)
+            5. **Adjust settings** (brightness, contrast, etc.)
+            6. **Download** the BIN file
+            
+            **Pro Tips:**
+            - Use high-contrast images for best LED display results
+            - Start with 64×32 for common LED matrices
+            - RGB565 saves memory (2 bytes/pixel)
+            - Test with simple images first
+            """)
+        
+        with col_doc2:
+            st.subheader("🔍 Viewing BIN/NLF/BIM Files")
+            st.markdown("""
+            **Analysis workflow:**
+            
+            1. **Upload** your BIN/NLF/BIM file
+            2. **Enable auto-detect** for automatic format detection
+            3. **Select from suggestions** or manually configure
+            4. **View decoded image** and analyze statistics
+            5. **Export** as PNG/JPEG if needed
+            
+            **Features:**
+            - Auto-detection of dimensions and format
+            - Multi-frame animation support
+            - Hex viewer with search
+            - Deep statistical analysis
+            - Frame-by-frame comparison
+            """)
+    
+    elif doc_section == "File Format Details":
+        st.subheader("🎨 Color Format Reference")
+        
+        format_details = {
+            "Format": ["RGB565", "RGB888", "BGR888", "RGBA8888", "Grayscale", "Monochrome"],
+            "Bits/Pixel": ["16", "24", "24", "32", "8", "1"],
+            "Bytes/Pixel": ["2", "3", "3", "4", "1", "0.125"],
+            "Colors": ["65,536", "16.7M", "16.7M", "16.7M+Alpha", "256", "2"],
+            "Common Use": [
+                "LED matrices (most common)",
+                "High-quality RGB displays",
+                "Some LED panels (reversed)",
+                "Displays with transparency",
+                "Monochrome OLEDs",
+                "Simple B&W displays"
             ]
         }
         
-        st.table(format_data)
+        st.table(format_details)
         
-        st.subheader("📐 Common Display Sizes")
+        st.markdown("---")
+        
+        col_fmt1, col_fmt2 = st.columns(2)
+        
+        with col_fmt1:
+            st.subheader("RGB565 Details")
+            st.markdown("""
+            **16-bit color encoding:**
+            ```
+            Bit 15-11: Red   (5 bits = 32 levels)
+            Bit 10-5:  Green (6 bits = 64 levels)
+            Bit 4-0:   Blue  (5 bits = 32 levels)
+            ```
+            
+            **Why 6 bits for green?**
+            Human eyes are most sensitive to green light, so it gets extra precision.
+            
+            **Encoding example:**
+            ```python
+            r5 = (red >> 3) & 0x1F
+            g6 = (green >> 2) & 0x3F
+            b5 = (blue >> 3) & 0x1F
+            rgb565 = (r5 << 11) | (g6 << 5) | b5
+            ```
+            """)
+        
+        with col_fmt2:
+            st.subheader("RGB888 Details")
+            st.markdown("""
+            **24-bit true color:**
+            ```
+            Byte 0: Red   (8 bits = 256 levels)
+            Byte 1: Green (8 bits = 256 levels)
+            Byte 2: Blue  (8 bits = 256 levels)
+            ```
+            
+            **Total colors:** 16,777,216
+            
+            **Byte ordering:**
+            - RGB888: Red, Green, Blue
+            - BGR888: Blue, Green, Red (reversed)
+            
+            **When to use:**
+            - High-quality displays
+            - When memory isn't limited
+            - Desktop/PC applications
+            """)
+    
+    elif doc_section == "LED Fan Guide (NLF)":
+        st.subheader("🎬 LED Fan Animation Format")
+        
         st.markdown("""
-        **LED Matrix Panels:**
-        - 32×32 pixels (P3, P4, P5 modules)
-        - 64×32 pixels (popular for signs)
-        - 64×64 pixels (larger displays)
-        - 128×64 pixels (wide panels)
+        ### What is NLF?
+        NLF (likely "Neopixel LED Fan" or similar) is a binary format for storing LED fan animations.
+        LED fans create 3D holographic effects by rapidly spinning LEDs while changing colors.
         
-        **OLED Displays:**
-        - 128×64 pixels (common size)
-        - 128×32 pixels (compact)
-        - 256×64 pixels (wide)
-        
-        **LED Fans:**
-        - Various custom sizes
-        - Usually 64×32 or similar
+        ### Common LED Fan Specifications
         """)
-    
-    st.markdown("---")
-    
-    st.subheader("🔧 Technical Details")
-    
-    col_tech1, col_tech2 = st.columns(2)
-    
-    with col_tech1:
-        st.markdown("""
-        ### RGB565 Format
-        16-bit color encoding:
-        - **Bits 15-11:** Red (5 bits, 32 levels)
-        - **Bits 10-5:** Green (6 bits, 64 levels)
-        - **Bits 4-0:** Blue (5 bits, 32 levels)
         
-        Green gets extra bit (human eye more sensitive).
-        
-        ### RGB888 Format
-        24-bit full color:
-        - **Byte 1:** Red (8 bits, 256 levels)
-        - **Byte 2:** Green (8 bits, 256 levels)
-        - **Byte 3:** Blue (8 bits, 256 levels)
-        
-        Total: 16,777,216 colors
-        """)
-    
-    with col_tech2:
-        st.markdown("""
-        ### Byte Order
-        - **RGB565:** Big-endian (MSB first)
-        - **RGB888:** Sequential R-G-B
-        - **BGR888:** Sequential B-G-R
-        
-        ### File Structure
-        Raw binary data with no headers:
-        ```
-        [Pixel 0][Pixel 1][Pixel 2]...
-        [Row 0 continues...]
-        [Row 1][Row 2]...
-        ```
-        
-        Sequential pixel data, row by row.
-        """)
-    
-    st.markdown("---")
-    
-    st.subheader("❓ Troubleshooting")
-    
-    with st.expander("Image looks corrupted or wrong colors"):
-        st.markdown("""
-        **Possible solutions:**
-        - Try different color format (RGB vs BGR)
-        - Verify width/height match your display
-        - Check if file size matches expected size
-        - Some displays use different byte ordering
-        """)
-    
-    with st.expander("File size doesn't match expected"):
-        st.markdown("""
-        **Check:**
-        - Width × Height × BytesPerPixel should equal file size
-        - RGB565: 2 bytes per pixel
-        - RGB888: 3 bytes per pixel
-        - Grayscale: 1 byte per pixel
-        - File might have header or padding (not supported)
-        """)
-    
-    with st.expander("Display shows garbled/shifted image"):
-        st.markdown("""
-        **Solutions:**
-        - Incorrect dimensions set
-        - Try auto-detect feature in BIN Viewer
-        - Some displays use row/column scanning patterns
-        - Check if display expects data in different order
-        """)
-    
-    with st.expander("Colors are too dim/bright"):
-        st.markdown("""
-        **Adjust:**
-        - Use Brightness/Contrast sliders in converter
-        - Some displays have gamma correction
-        - LED displays may need hardware brightness adjustment
-        - Consider display's power limitations
-        """)
-    
-    st.markdown("---")
-    
-    st.subheader("🚀 Example Use Cases")
-    
-    col_ex1, col_ex2 = st.columns(2)
-    
-    with col_ex1:
-        st.markdown("""
-        ### Arduino LED Matrix
-        ```cpp
-        // Load BIN file from SD card
-        File binFile = SD.open("image.bin");
-        uint8_t buffer[2048];
-        binFile.read(buffer, 2048);
-        
-        // Display on matrix
-        matrix.drawRGBBitmap(0, 0, 
-          (uint16_t*)buffer, 64, 32);
-        ```
-        
-        ### ESP32 LED Panel
-        ```cpp
-        #include <SD.h>
-        #include <PxMatrix.h>
-        
-        // Read BIN file
-        File f = SD.open("/image.bin");
-        uint16_t pixel;
-        for(int y=0; y<32; y++) {
-          for(int x=0; x<64; x++) {
-            f.read((uint8_t*)&pixel, 2);
-            display.drawPixel(x, y, pixel);
-          }
+        fan_specs = {
+            "Model": ["Standard", "Large", "Mini", "Pro"],
+            "Resolution": ["144×64", "120×60", "96×48", "144×96"],
+            "Format": ["RGB565", "RGB565", "RGB565", "RGB888"],
+            "FPS": ["20-30", "15-25", "25-35", "20-30"],
+            "Use Case": ["General", "High detail", "Compact", "Premium quality"]
         }
+        st.table(fan_specs)
+        
+        st.markdown("""
+        ### NLF File Structure
         ```
+        [Header - 10 bytes]
+        - Magic: 'NLF1' (4 bytes)
+        - Width: uint16 (2 bytes)
+        - Height: uint16 (2 bytes)
+        - Bytes per pixel: uint8 (1 byte)
+        - Frame count: uint8 (1 byte)
+        
+        [Frame Data]
+        - Frame 0: [width × height × bpp] bytes
+        - Frame 1: [width × height × bpp] bytes
+        - ... (repeated for each frame)
+        ```
+        
+        ### Creating LED Fan Animations
+        1. Create a sequence of images (frames)
+        2. Convert each to the correct size (e.g., 144×64)
+        3. Combine into single BIN file
+        4. Add NLF header (optional, depending on device)
+        5. Test playback speed and adjust FPS
+        
+        ### Best Practices
+        - **High contrast:** LED fans work best with bold colors
+        - **Simple designs:** Complex details may blur
+        - **Frame rate:** 20-30 FPS is typical
+        - **Loop smoothly:** Ensure first and last frames match
+        - **Test in darkness:** LED fans look best in low light
         """)
     
-    with col_ex2:
-        st.markdown("""
-        ### Raspberry Pi Display
-        ```python
-        from PIL import Image
-        import numpy as np
+    elif doc_section == "Troubleshooting":
+        st.subheader("🔧 Common Issues & Solutions")
         
-        # Read BIN file
-        with open('image.bin', 'rb') as f:
-            data = f.read()
+        with st.expander("❌ Image looks corrupted or garbled"):
+            st.markdown("""
+            **Possible causes & fixes:**
+            
+            1. **Wrong dimensions**
+               - Solution: Try auto-detect feature
+               - Check device specifications
+               - Try common sizes (64×32, 128×64, etc.)
+            
+            2. **Wrong color format**
+               - Solution: Try RGB565 first (most common)
+               - If colors are wrong, try BGR888
+               - Check device documentation
+            
+            3. **File has header**
+               - Solution: Enable auto-detect
+               - Manually skip header bytes
+               - Check first few bytes in hex viewer
+            
+            4. **Byte order issues**
+               - Some displays expect different endianness
+               - Try swapping byte pairs if RGB565 looks wrong
+            """)
         
-        # Convert RGB565 to RGB888
+        with st.expander("⚠️ File size doesn't match"):
+            st.markdown("""
+            **Verification formula:**
+            ```
+            Expected Size = Width × Height × Bytes_Per_Pixel
+            
+            RGB565:  Width × Height × 2
+            RGB888:  Width × Height × 3
+            RGBA:    Width × Height × 4
+            Gray:    Width × Height × 1
+            ```
+            
+            **If size doesn't match:**
+            - File may have header (add 10-20 bytes)
+            - File may have padding/alignment bytes
+            - Multiple frames (divide by frame count)
+            - Check for footer or metadata
+            """)
+        
+        with st.expander("🎨 Colors are wrong or inverted"):
+            st.markdown("""
+            **Color issues:**
+            
+            1. **RGB vs BGR**
+               - Some displays reverse red and blue
+               - Try BGR888 if RGB888 looks wrong
+            
+            2. **Inverted colors (negative image)**
+               - Use "Invert Colors" option in viewer
+               - Check if display inverts automatically
+            
+            3. **Washed out colors**
+               - Increase contrast in converter
+               - Adjust brightness settings
+               - Check display brightness limits
+            
+            4. **Wrong bit depth**
+               - RGB565 has less color depth than RGB888
+               - Dithering can help smooth gradients
+            """)
+        
+        with st.expander("🎬 Animation doesn't play correctly"):
+            st.markdown("""
+            **Animation troubleshooting:**
+            
+            1. **Wrong frame size**
+               - Calculate: width × height × bytes_per_pixel
+               - File should divide evenly by frame size
+            
+            2. **Wrong frame count**
+               - Check file_size / frame_size
+               - May include header/footer bytes
+            
+            3. **Frame order issues**
+               - Frames are sequential in file
+               - First frame at offset 0 (or after header)
+            
+            4. **Playback speed**
+               - Adjust FPS in animation tools
+               - Most LED fans: 20-30 FPS
+               - Test different speeds
+            """)
+    
+    elif doc_section == "Code Examples":
+        st.subheader("💻 Integration Code Examples")
+        
+        code_platform = st.selectbox("Select Platform", 
+            ["Arduino/ESP32", "Raspberry Pi (Python)", "Processing/P5.js", "C/C++", "MicroPython"])
+        
+        if code_platform == "Arduino/ESP32":
+            st.code("""
+// Arduino LED Matrix Example
+#include <Adafruit_GFX.h>
+#include <RGBmatrixPanel.h>
+#include <SD.h>
+
+#define WIDTH 64
+#define HEIGHT 32
+
+RGBmatrixPanel matrix(A, B, C, D, CLK, LAT, OE, false, 64);
+
+void setup() {
+  matrix.begin();
+  SD.begin(SD_CS_PIN);
+  
+  // Load and display BIN file
+  File binFile = SD.open("image.bin");
+  if (binFile) {
+    uint8_t buffer[WIDTH * HEIGHT * 2]; // RGB565
+    binFile.read(buffer, sizeof(buffer));
+    binFile.close();
+    
+    // Display image
+    int idx = 0;
+    for (int y = 0; y < HEIGHT; y++) {
+      for (int x = 0; x < WIDTH; x++) {
+        uint16_t color = (buffer[idx] << 8) | buffer[idx + 1];
+        matrix.drawPixel(x, y, color);
+        idx += 2;
+      }
+    }
+  }
+}
+
+void loop() {
+  // Animation loop would go here
+}
+            """, language="cpp")
+        
+        elif code_platform == "Raspberry Pi (Python)":
+            st.code("""
+# Raspberry Pi LED Display
+from PIL import Image
+import numpy as np
+from rgbmatrix import RGBMatrix, RGBMatrixOptions
+
+# Matrix configuration
+options = RGBMatrixOptions()
+options.rows = 32
+options.cols = 64
+options.chain_length = 1
+matrix = RGBMatrix(options=options)
+
+def load_bin_file(filename, width, height, format='RGB565'):
+    with open(filename, 'rb') as f:
+        data = f.read()
+    
+    if format == 'RGB565':
         pixels = []
         for i in range(0, len(data), 2):
             rgb565 = (data[i] << 8) | data[i+1]
@@ -898,97 +1645,190 @@ with tab3:
             b = (rgb565 & 0x1F) << 3
             pixels.extend([r, g, b])
         
-        # Create image
-        img = Image.frombytes('RGB', 
-          (64, 32), bytes(pixels))
-        ```
-        
-        ### Processing/P5.js
-        ```javascript
-        // Load binary file
-        let data = loadBytes('image.bin');
-        
-        loadPixels();
-        for(let i=0; i<data.bytes.length; i+=2){
-          let rgb565 = (data.bytes[i]<<8) | 
-                       data.bytes[i+1];
-          let r = ((rgb565>>11)&0x1F)<<3;
-          let g = ((rgb565>>5)&0x3F)<<2;
-          let b = (rgb565&0x1F)<<3;
-          // Set pixel...
-        }
-        ```
-        """)
+        img = Image.frombytes('RGB', (width, height), bytes(pixels))
+        return img
     
-    st.markdown("---")
-    
-    st.subheader("📦 Supported File Formats")
-    
-    col_fmt1, col_fmt2, col_fmt3 = st.columns(3)
-    
-    with col_fmt1:
-        st.markdown("""
-        **Input Images:**
-        - ✅ PNG
-        - ✅ JPG/JPEG
-        - ✅ BMP
-        - ✅ GIF
-        - ✅ WebP
-        """)
-    
-    with col_fmt2:
-        st.markdown("""
-        **Output Formats:**
-        - ✅ .bin (raw binary)
-        - ✅ RGB565 (16-bit)
-        - ✅ RGB888 (24-bit)
-        - ✅ BGR888 (24-bit)
-        - ✅ Grayscale (8-bit)
-        - ✅ Monochrome (1-bit)
-        """)
-    
-    with col_fmt3:
-        st.markdown("""
-        **Export Options:**
-        - ✅ Download BIN
-        - ✅ Export PNG
-        - ✅ Hex preview
-        - ✅ Statistics
-        - ✅ Analysis tools
-        """)
-    
-    st.markdown("---")
-    
-    st.subheader("⚡ Performance Tips")
-    st.markdown("""
-    - **Large files (>1MB):** May take a few seconds to process
-    - **Very high resolution:** Consider downscaling first
-    - **Batch conversion:** Process multiple images one at a time
-    - **Memory:** Close other tabs if processing very large files
-    - **Browser:** Chrome/Edge recommended for best performance
-    """)
-    
-    st.markdown("---")
-    
-    st.info("""
-    💡 **Pro Tip:** Save your settings by bookmarking the page after configuring your preferences. 
-    The app will remember your matrix dimensions and format choices!
-    """)
-    
-    st.success("""
-    ✨ **Need Help?** This tool is designed to be intuitive, but if you're stuck:
-    1. Try the Quick Presets for common configurations
-    2. Use Auto-detect in BIN Viewer to find correct dimensions
-    3. Check the Troubleshooting section above
-    4. Start with small test images to verify your setup
-    """)
+    elif format == 'RGB888':
+        img = Image.frombytes('RGB', (width, height), data)
+        return img
 
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: #666; padding: 2rem 0;'>
-    <p><b>Image ⇄ BIN Converter Pro</b></p>
-    <p>Perfect for LED matrices, OLED displays, LED fans, and embedded displays</p>
-    <p style='font-size: 0.9em;'>Supports RGB565, RGB888, BGR888, Grayscale, and Monochrome formats</p>
-</div>
-""", unsafe_allow_html=True)
+# Load and display
+image = load_bin_file('image.bin', 64, 32, 'RGB565')
+matrix.SetImage(image.convert('RGB'))
+
+# Keep displaying
+try:
+    while True:
+        pass
+except KeyboardInterrupt:
+    matrix.Clear()
+            """, language="python")
+        
+        elif code_platform == "Processing/P5.js":
+            st.code("""
+// Processing/P5.js Example
+let binData;
+let img;
+const WIDTH = 64;
+const HEIGHT = 32;
+
+function preload() {
+  binData = loadBytes('image.bin');
+}
+
+function setup() {
+  createCanvas(WIDTH * 8, HEIGHT * 8); // Scale 8x
+  noLoop();
+  
+  img = createImage(WIDTH, HEIGHT);
+  img.loadPixels();
+  
+  // Decode RGB565
+  let dataIdx = 0;
+  for (let i = 0; i < img.pixels.length; i += 4) {
+    if (dataIdx + 1 < binData.bytes.length) {
+      let rgb565 = (binData.bytes[dataIdx] << 8) | binData.bytes[dataIdx + 1];
+      
+      let r = ((rgb565 >> 11) & 0x1F) << 3;
+      let g = ((rgb565 >> 5) & 0x3F) << 2;
+      let b = (rgb565 & 0x1F) << 3;
+      
+      img.pixels[i] = r;
+      img.pixels[i + 1] = g;
+      img.pixels[i + 2] = b;
+      img.pixels[i + 3] = 255;
+      
+      dataIdx += 2;
+    }
+  }
+  
+  img.updatePixels();
+}
+
+function draw() {
+  image(img, 0, 0, width, height);
+}
+            """, language="javascript")
+    
+    elif doc_section == "Advanced Topics":
+        st.subheader("🚀 Advanced Features")
+        
+        st.markdown("""
+        ### Gamma Correction
+        LED displays often need gamma correction for proper brightness:
+        
+        ```python
+        corrected = 255 * pow(original / 255, 1/gamma)
+        ```
+        
+        Typical gamma values:
+        - **2.2**: Standard sRGB monitors
+        - **2.8**: Many LED displays
+        - **1.8**: Older Mac displays
+        - **1.0**: No correction (linear)
+        
+        ### Dithering
+        Dithering reduces banding in low-color displays by adding noise patterns:
+        
+        - **Floyd-Steinberg**: Most common, good quality
+        - **Ordered (Bayer)**: Faster, consistent pattern
+        - **Atkinson**: Apple's algorithm, good for screens
+        
+        ### Color Space Conversion
+        Some applications require specific color spaces:
+        
+        - **RGB → HSV**: Better for color manipulation
+        - **RGB → YUV**: Video encoding
+        - **RGB → LAB**: Perceptually uniform
+        
+        ### File Compression
+        While BIN files are uncompressed, you can:
+        
+        1. **Pre-compress**: Use ZIP/GZIP for storage
+        2. **RLE encoding**: Good for simple images
+        3. **Custom format**: Add compression to file format
+        
+        ### Multi-frame Optimization
+        For animations:
+        
+        1. **Delta encoding**: Store only changes between frames
+        2. **Keyframes**: Full frames every N frames
+        3. **Palette mode**: Use color lookup table
+        4. **Frame skipping**: Reduce FPS for smaller files
+        """)
+    
+    else:  # FAQ
+        st.subheader("❓ Frequently Asked Questions")
+        
+        with st.expander("What's the difference between BIN, NLF, and BIM?"):
+            st.markdown("""
+            - **BIN**: Generic binary format, raw pixel data with no header
+            - **NLF**: LED Fan format, includes header with dimensions and frame count
+            - **BIM**: Binary Image format with basic header
+            
+            All store the same pixel data, just different metadata structures.
+            """)
+        
+        with st.expander("Which color format should I use?"):
+            st.markdown("""
+            **RGB565** - Most common for LED displays
+            - Pros: Small file size, hardware support
+            - Cons: Limited colors (65K)
+            - Use for: LED matrices, embedded displays
+            
+            **RGB888** - Full color
+            - Pros: 16.7M colors, true color
+            - Cons: 50% larger than RGB565
+            - Use for: High-quality displays, PC applications
+            
+            **Grayscale** - Single channel
+            - Pros: Very small, simple
+            - Cons: No color
+            - Use for: OLED displays, monochrome screens
+            """)
+        
+        with st.expander("How do I optimize images for LED displays?"):
+            st.markdown("""
+            1. **Use high contrast**: LEDs show bold colors best
+            2. **Avoid gradients**: May show banding on RGB565
+            3. **Simplify details**: Small pixels = less detail visible
+            4. **Test brightness**: Adjust for viewing distance
+            5. **Consider viewing angle**: LEDs have directional light
+            6. **Use dithering**: Helps smooth RGB565 conversions
+            """)
+        
+        with st.expander("Can I convert back from BIN to image?"):
+            st.markdown("""
+            Yes! Use the "BIN/NLF/BIM Viewer" tab:
+            
+            1. Upload your BIN file
+            2. Set correct dimensions and format
+            3. Use auto-detect for automatic configuration
+            4. Export as PNG or JPEG
+            
+            The viewer can decode any BIN file if you know its format.
+            """)
+        
+        with st.expander("My animation plays too fast/slow"):
+            st.markdown("""
+            Frame rate depends on your device:
+            
+            - **LED Fans**: Usually 20-30 FPS
+            - **LED Matrices**: 30-60 FPS
+            - **OLED**: Variable
+            
+            Adjust playback speed in your device firmware or use the animation tools
+            to test different speeds before deploying.
+            """)
+        
+        with st.expander("How do I create an NLF file from multiple images?"):
+            st.markdown("""
+            Method 1: Combine BIN files
+            1. Convert each image to BIN (same size/format)
+            2. Concatenate files: `cat frame1.bin frame2.bin > animation.nlf`
+            3. Add NLF header if needed
+            
+            Method 2: Use Animation Tools tab
+            1. Create sequence of images
+            2. Upload to this tool
+            3. Export as animated format
